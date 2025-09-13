@@ -12,7 +12,7 @@ Consulta Externa, Emergencias, Cirugía y Hospitalización.
 | `sql/dml/` | Inserciones de datos ficticios de prueba |
 | `sql/dcl/` | Roles/usuarios y asignación de privilegios (GRANT/REVOKE) |
 | `backup/`  | Respaldo generado con pg_dump (estructura + datos) |
-| `documentacion/` | PDF con imágenes del modelo, sentencias SQL y diccionario de datos |
+| `documentacion/` | PDF con imágenes del modelo, sentencias SQL y diccionario de datos. `justificaciones.py` contiene la justificación de negocio de DELETE/UPDATE de cada llave foránea, que el enunciado exige solo en el PDF |
 
 ## Entorno
 

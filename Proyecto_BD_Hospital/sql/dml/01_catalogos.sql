@@ -4,6 +4,29 @@
 
 SET search_path TO public;
 
+-- Catalogo geografico: 22 departamentos y 7 municipios usados en los datos
+INSERT INTO departamento (nombre) VALUES
+('Alta Verapaz'),('Baja Verapaz'),('Chimaltenango'),('Chiquimula'),
+('El Progreso'),('Escuintla'),('Guatemala'),('Huehuetenango'),('Izabal'),
+('Jalapa'),('Jutiapa'),('Petén'),('Quetzaltenango'),('Quiché'),
+('Retalhuleu'),('Sacatepéquez'),('San Marcos'),('Santa Rosa'),('Sololá'),
+('Suchitepéquez'),('Totonicapán'),('Zacapa');
+
+INSERT INTO municipio (departamento_id, nombre)
+SELECT id_departamento, 'Quetzaltenango' FROM departamento WHERE nombre='Quetzaltenango';
+INSERT INTO municipio (departamento_id, nombre)
+SELECT id_departamento, 'Coatepeque' FROM departamento WHERE nombre='Quetzaltenango';
+INSERT INTO municipio (departamento_id, nombre)
+SELECT id_departamento, 'Olintepeque' FROM departamento WHERE nombre='Quetzaltenango';
+INSERT INTO municipio (departamento_id, nombre)
+SELECT id_departamento, 'Zunil' FROM departamento WHERE nombre='Quetzaltenango';
+INSERT INTO municipio (departamento_id, nombre)
+SELECT id_departamento, 'Cantel' FROM departamento WHERE nombre='Quetzaltenango';
+INSERT INTO municipio (departamento_id, nombre)
+SELECT id_departamento, 'San Marcos' FROM departamento WHERE nombre='San Marcos';
+INSERT INTO municipio (departamento_id, nombre)
+SELECT id_departamento, 'Totonicapán' FROM departamento WHERE nombre='Totonicapán';
+
 -- Hospitales de la cadena
 INSERT INTO hospital (id_hospital, nombre, informacion_especifica, direccion) VALUES
 (1, 'Hospital General de Occidente', 'Hospital general de tercer nivel; 4 quirófanos y 24 camillas de hospitalización.', '15 Av. 6-45, zona 3, Quetzaltenango'),
@@ -44,7 +67,9 @@ INSERT INTO servicio_atencion (id_servicio, unidad_id, nombre, costo) VALUES
 (18, 13, 'Cirugía Cardiovascular', 15000.00),
 (19, 13, 'Cirugía Oncológica', 12000.00);
 
--- Especialidades (consulta externa + quirúrgicas)
+-- Especialidades (consulta externa + quirurgicas)
+-- 301-314: las 14 que el enunciado exige para Consulta Externa
+-- 315-329: las 14 especialidades quirurgicas del enunciado
 INSERT INTO especialidad (id_especialidad, nombre) VALUES
 (301, 'Cardiología'), (302, 'Dermatología'), (303, 'Fisioterapia'),
 (304, 'Ginecología Oncológica'), (305, 'Hematología'), (306, 'Medicina Física y Rehabilitación'),
@@ -52,65 +77,106 @@ INSERT INTO especialidad (id_especialidad, nombre) VALUES
 (310, 'Oftalmología'), (311, 'Psicología'), (312, 'Pediatría'), (313, 'Urología'),
 (314, 'Terapia del Lenguaje'),
 (315, 'Cirugía General'), (316, 'Cirugía Cardiovascular'), (317, 'Cirugía Oncológica'),
-(318, 'Anestesiología');
+(318, 'Anestesiología'),
+(319, 'Cirugía de la Mano'), (320, 'Videolaparoscopia Quirúrgica'),
+(321, 'Cirugía Ginecológica'), (322, 'Cirugía Neurológica'),
+(323, 'Cirugía Oftalmológica'), (324, 'Cirugía Ortopédica'),
+(325, 'Cirugía Otorrinolaringológica'), (326, 'Cirugía Pediátrica'),
+(327, 'Cirugía Plástica'), (328, 'Cirugía de Tórax'), (329, 'Cirugía Urológica');
 
--- Médicos (consultas, emergencias y cirujanos)
-INSERT INTO medico (id_medico, nombres, apellidos, dpi, telefono, municipio_id, area, especialidad_id, tipo_medico, costo_primera_consulta, horario_inicio, horario_fin) VALUES
-(1001, 'Carmen', 'Ruiz Palacios', '2001123450101', '5551-2001', (SELECT id_municipio FROM municipio WHERE nombre='Quetzaltenango'), 'Urbana', 307, 'general', 200.00, '08:00', '12:00'),
-(1002, 'Roberto', 'Castillo Méndez', '2001123450102', '5551-2002', (SELECT id_municipio FROM municipio WHERE nombre='Olintepeque'), 'Urbana', 301, 'especialista', 220.00, '08:00', '11:30'),
-(1003, 'Andrea', 'Soto Fuentes', '2001123450103', '5551-2003', (SELECT id_municipio FROM municipio WHERE nombre='San Marcos'), 'Rural', 303, 'especialista', 160.00, '09:00', '12:00'),
-(1004, 'Julia', 'Paredes Ovalle', '2001123450104', '5551-2004', (SELECT id_municipio FROM municipio WHERE nombre='Quetzaltenango'), 'Urbana', 312, 'especialista', 180.00, '08:00', '12:00'),
-(1005, 'Miguel', 'Barrios Donis', '2001123450105', '5551-2005', (SELECT id_municipio FROM municipio WHERE nombre='Coatepeque'), 'Rural', 307, 'general', 180.00, '08:00', '12:00'),
-(1006, 'Alejandro', 'Ramírez Lemus', '2001123450106', '5551-2006', (SELECT id_municipio FROM municipio WHERE nombre='Quetzaltenango'), 'Urbana', 315, 'residente', NULL, NULL, NULL),
-(1007, 'Hilda', 'Cifuentes Rojas', '2001123450107', '5551-2007', (SELECT id_municipio FROM municipio WHERE nombre='San Marcos'), 'Urbana', 316, 'externo', NULL, NULL, NULL),
-(1008, 'Daniel', 'Morales Peña', '2001123450108', '5551-2008', (SELECT id_municipio FROM municipio WHERE nombre='Quetzaltenango'), 'Urbana', 318, 'interno', NULL, NULL, NULL),
-(1009, 'Silvia', 'Vásquez Cotero', '2001123450109', '5551-2009', (SELECT id_municipio FROM municipio WHERE nombre='Totonicapán'), 'Urbana', 317, 'especialista', NULL, NULL, NULL);
+-- Médicos: cada uno pertenece a un hospital concreto.
+-- Los externos (1007, 1008) no están contratados, solo llegan a cirugias.
+INSERT INTO medico (id_medico, nombres, apellidos, dpi, telefono, hospital_id, municipio_id, area, especialidad_id, tipo_medico, costo_primera_consulta, horario_inicio, horario_fin) VALUES
+(1001, 'Carmen', 'Ruiz Palacios', '2001123450101', '5551-2001', 1, (SELECT id_municipio FROM municipio WHERE nombre='Quetzaltenango'), 'Urbana', 307, 'general', 200.00, '08:00', '12:00'),
+(1002, 'Roberto', 'Castillo Méndez', '2001123450102', '5551-2002', 1, (SELECT id_municipio FROM municipio WHERE nombre='Olintepeque'), 'Urbana', 301, 'especialista', 220.00, '08:00', '11:30'),
+(1003, 'Andrea', 'Soto Fuentes', '2001123450103', '5551-2003', 1, (SELECT id_municipio FROM municipio WHERE nombre='San Marcos'), 'Rural', 303, 'especialista', 160.00, '09:00', '12:00'),
+(1004, 'Julia', 'Paredes Ovalle', '2001123450104', '5551-2004', 1, (SELECT id_municipio FROM municipio WHERE nombre='Quetzaltenango'), 'Urbana', 312, 'especialista', 180.00, '08:00', '12:00'),
+(1005, 'Miguel', 'Barrios Donis', '2001123450105', '5551-2005', 1, (SELECT id_municipio FROM municipio WHERE nombre='Coatepeque'), 'Rural', 307, 'general', 180.00, '08:00', '12:00'),
+(1006, 'Alejandro', 'Ramírez Lemus', '2001123450106', '5551-2006', 1, (SELECT id_municipio FROM municipio WHERE nombre='Quetzaltenango'), 'Urbana', 315, 'residente', NULL, NULL, NULL),
+(1007, 'Hilda', 'Cifuentes Rojas', '2001123450107', '5551-2007', 2, (SELECT id_municipio FROM municipio WHERE nombre='San Marcos'), 'Urbana', 316, 'externo', NULL, NULL, NULL),
+(1008, 'Daniel', 'Morales Peña', '2001123450108', '5551-2008', 1, (SELECT id_municipio FROM municipio WHERE nombre='Quetzaltenango'), 'Urbana', 318, 'interno', NULL, NULL, NULL),
+(1009, 'Silvia', 'Vásquez Cotero', '2001123450109', '5551-2009', 3, (SELECT id_municipio FROM municipio WHERE nombre='Totonicapán'), 'Urbana', 317, 'especialista', NULL, NULL, NULL);
+
+-- Medicos de consulta externa para las especialidades que estaban sin ninguno.
+-- El enunciado pide al menos un medico por cada una de las 14 especialidades.
+INSERT INTO medico (id_medico, nombres, apellidos, dpi, telefono, hospital_id, municipio_id, area, especialidad_id, tipo_medico, costo_primera_consulta, horario_inicio, horario_fin) VALUES
+(1010, 'Elena', 'Vasquez Sotelo', '2001123450110', '5551-2010', 1, (SELECT id_municipio FROM municipio WHERE nombre='Quetzaltenango'), 'Urbana', 302, 'especialista', 180.00, '08:00', '12:00'),
+(1011, 'Marcos', 'Aguilar Salazar', '2001123450111', '5551-2011', 1, (SELECT id_municipio FROM municipio WHERE nombre='Quetzaltenango'), 'Urbana', 304, 'especialista', 210.00, '09:00', '12:00'),
+(1012, 'Gabriela', 'Nájera', '2001123450112', '5551-2012', 2, (SELECT id_municipio FROM municipio WHERE nombre='San Marcos'), 'Urbana', 305, 'especialista', 195.00, '08:00', '11:30'),
+(1013, 'Fernando', 'López', '2001123450113', '5551-2013', 1, (SELECT id_municipio FROM municipio WHERE nombre='Olintepeque'), 'Urbana', 306, 'especialista', 175.00, '09:00', '12:00'),
+(1014, 'Claudia', 'Recinos', '2001123450114', '5551-2014', 2, (SELECT id_municipio FROM municipio WHERE nombre='San Marcos'), 'Urbana', 308, 'especialista', 150.00, '08:00', '12:00'),
+(1015, 'Andrés', 'Chinchilla', '2001123450115', '5551-2015', 1, (SELECT id_municipio FROM municipio WHERE nombre='Quetzaltenango'), 'Urbana', 309, 'general', 130.00, '08:00', '12:00'),
+(1016, 'Paola', 'Sandoval', '2001123450116', '5551-2016', 3, (SELECT id_municipio FROM municipio WHERE nombre='Totonicapán'), 'Urbana', 310, 'especialista', 185.00, '08:00', '12:00'),
+(1017, 'Ricardo', 'Batz', '2001123450117', '5551-2017', 1, (SELECT id_municipio FROM municipio WHERE nombre='Quetzaltenango'), 'Urbana', 311, 'especialista', 165.00, '09:00', '12:00'),
+(1018, 'Silvia', 'Gómez', '2001123450118', '5551-2018', 1, (SELECT id_municipio FROM municipio WHERE nombre='Olintepeque'), 'Urbana', 314, 'especialista', 140.00, '08:00', '12:00'),
+(1019, 'Julio', 'Estrada', '2001123450119', '5551-2019', 2, (SELECT id_municipio FROM municipio WHERE nombre='San Marcos'), 'Urbana', 313, 'especialista', 190.00, '08:00', '12:00');
+
+-- Cirujanos para las 14 especialidades quirurgicas del enunciado.
+-- Son medicos externos: no estan contratados, solo llegan a cirugias,
+-- por eso costo_primera_consulta y horarios van en NULL.
+INSERT INTO medico (id_medico, nombres, apellidos, dpi, telefono, hospital_id, municipio_id, area, especialidad_id, tipo_medico, costo_primera_consulta, horario_inicio, horario_fin) VALUES
+(1020, 'René', 'Iguarán', '2001123450120', '5551-2020', 1, (SELECT id_municipio FROM municipio WHERE nombre='Quetzaltenango'), 'Urbana', 319, 'externo', NULL, NULL, NULL),
+(1021, 'Wilfredo', 'Chávez', '2001123450121', '5551-2021', 2, (SELECT id_municipio FROM municipio WHERE nombre='San Marcos'), 'Urbana', 320, 'externo', NULL, NULL, NULL),
+(1022, 'Ana', 'Lucero', '2001123450122', '5551-2022', 3, (SELECT id_municipio FROM municipio WHERE nombre='Quetzaltenango'), 'Urbana', 321, 'externo', NULL, NULL, NULL),
+(1023, 'Héctor', 'Quirós', '2001123450123', '5551-2023', 1, (SELECT id_municipio FROM municipio WHERE nombre='Olintepeque'), 'Urbana', 322, 'externo', NULL, NULL, NULL),
+(1024, 'Verónica', 'Aranda', '2001123450124', '5551-2024', 2, (SELECT id_municipio FROM municipio WHERE nombre='Quetzaltenango'), 'Urbana', 323, 'externo', NULL, NULL, NULL),
+(1025, 'Gustavo', 'Rivas', '2001123450125', '5551-2025', 3, (SELECT id_municipio FROM municipio WHERE nombre='Totonicapán'), 'Urbana', 324, 'externo', NULL, NULL, NULL),
+(1026, 'Mónica', 'Figueroa', '2001123450126', '5551-2026', 1, (SELECT id_municipio FROM municipio WHERE nombre='Quetzaltenango'), 'Urbana', 325, 'externo', NULL, NULL, NULL),
+(1027, 'Pablo', 'Tzoc', '2001123450127', '5551-2027', 2, (SELECT id_municipio FROM municipio WHERE nombre='San Marcos'), 'Urbana', 326, 'externo', NULL, NULL, NULL),
+(1028, 'Isabel', 'Contreras', '2001123450128', '5551-2028', 3, (SELECT id_municipio FROM municipio WHERE nombre='Quetzaltenango'), 'Urbana', 327, 'externo', NULL, NULL, NULL),
+(1029, 'Carlos', 'Menández', '2001123450129', '5551-2029', 1, (SELECT id_municipio FROM municipio WHERE nombre='Olintepeque'), 'Urbana', 328, 'externo', NULL, NULL, NULL),
+(1030, 'Luis', 'Zambrano', '2001123450130', '5551-2030', 2, (SELECT id_municipio FROM municipio WHERE nombre='San Marcos'), 'Urbana', 329, 'externo', NULL, NULL, NULL);
 
 -- Enfermeros
 INSERT INTO enfermero (id_enfermero, nombres, apellidos, dpi, telefono, tipo) VALUES
 (2001, 'Luis', 'Hernández Solís', '2001123450201', '5552-2001', 'registrado'),
 (2002, 'Marta', 'Recinos Alvarado', '2001123450202', '5552-2002', 'registrado'),
-(2003, 'José', 'Pérez Gaitán', '2001123450203', '5552-2003', 'practicante_de_enfermeria'),
-(2004, 'Karen', 'Chacón Barrera', '2001123450204', '5552-2004', 'registrado');
+(2003, 'Carlos', 'García Méndez', '2001123450203', '5552-2003', 'practicante_de_enfermeria'),
+(2004, 'Ana', 'López Pérez', '2001123450204', '5552-2004', 'registrado'),
+(2005, 'Pedro', 'Ramírez Soto', '2001123450205', '5552-2005', 'registrado');
 
--- Camillas (por hospital, numeración única dentro de cada hospital)
+-- Camillas (asignadas a unidades de hospitalizacion: 14, 24, 34)
 INSERT INTO camilla (id_camilla, hospital_id, unidad_id, numero, disponible) VALUES
-(101, 1, 11, '101', TRUE), (102, 1, 11, '102', TRUE),
-(111, 1, 12, '111', TRUE), (112, 1, 12, '112', TRUE), (113, 1, 12, '113', TRUE),
-(121, 1, 14, '121', FALSE), (122, 1, 14, '122', TRUE), (123, 1, 14, '123', FALSE), (124, 1, 14, '124', TRUE),
-(211, 2, 22, '211', TRUE), (212, 2, 22, '212', TRUE),
-(221, 2, 24, '221', TRUE), (222, 2, 24, '222', TRUE);
+(1, 1, 14, 1, true), (2, 1, 14, 2, true), (3, 1, 14, 3, true), (4, 1, 14, 4, true),
+(5, 1, 14, 5, true), (6, 1, 14, 6, true), (7, 1, 14, 7, true), (8, 1, 14, 8, true),
+(9, 1, 14, 9, true), (10, 1, 14, 10, true), (11, 1, 14, 11, true), (12, 1, 14, 12, true),
+(13, 1, 14, 13, true), (14, 1, 14, 14, true), (15, 1, 14, 15, true), (16, 1, 14, 16, true),
+(17, 1, 14, 17, true), (18, 1, 14, 18, true), (19, 1, 14, 19, true), (20, 1, 14, 20, true),
+(21, 1, 14, 21, true), (22, 1, 14, 22, true), (23, 1, 14, 23, true), (24, 1, 14, 24, true);
 
--- Quirófanos
+-- Quirofanos
 INSERT INTO quirofano (id_quirofano, hospital_id, numero, estado) VALUES
-(1, 1, 'Q-1', 'disponible'), (2, 1, 'Q-2', 'ocupado'), (3, 1, 'Q-3', 'disponible'), (4, 1, 'Q-4', 'en_mantenimiento'),
-(5, 2, 'Q-1', 'disponible'), (6, 2, 'Q-2', 'disponible');
+(1, 1, 1, 'disponible'), (2, 1, 2, 'disponible'),
+(3, 1, 3, 'disponible'), (4, 1, 4, 'disponible');
 
 -- Insumos
-INSERT INTO insumo (id_insumo, nombre, descripcion, material, tipo) VALUES
-(1, 'Solución salina 0.9% 1000 ml', 'Solución para hidratación parenteral.', 'Plástico', 'medico'),
-(2, 'Catéter intravenoso 20G', 'Para acceso venoso periférico.', 'Acero/plástico', 'medico'),
-(3, 'Seda quirúrgica 2-0', 'Hilo de sutura no absorbible.', 'Seda', 'quirurgico'),
-(4, 'Gasa estéril 10x10', 'Para curación y campos operatorios.', 'Algodón', 'quirurgico'),
-(5, 'Guantes quirúrgicos estériles', 'Guantes de látex sin polvo.', 'Látex', 'medico'),
-(6, 'Propofol 10 mg/ml', 'Anestésico intravenoso de acción corta.', 'Vidrio', 'medico'),
-(7, 'Sutura absorbible 3-0', 'Hilo de sutura reabsorbible.', 'Sintético', 'quirurgico'),
-(8, 'Paracetamol 500 mg', 'Analgésico y antipirético.', 'Blíster', 'medico');
+INSERT INTO insumo (id_insumo, nombre, unidad_medida, costo_unitario, stock_minimo, stock_actual) VALUES
+(1, 'Gasas estériles 10x10', 'paquete', 15.00, 50, 120),
+(2, 'Guantes quirúrgicos látex', 'caja', 85.00, 30, 80),
+(3, 'Suero fisiológico 1L', 'bolsa', 12.00, 40, 100),
+(4, 'Jeringa desechable 5ml', 'unidad', 2.50, 100, 300),
+(5, 'Catéter venoso central', 'unidad', 45.00, 10, 25),
+(6, 'Bisturí #10', 'unidad', 8.00, 20, 50),
+(7, 'Hilo vicryl 3-0', 'unidad', 35.00, 15, 40),
+(8, 'Algodón hidrófilo 100g', 'rollo', 18.00, 25, 60),
+(9, 'Betadine solución 500ml', 'frasco', 55.00, 10, 30),
+(10, 'Guantes de examen nitrilo', 'caja', 70.00, 20, 50);
 
 -- Instrumentos
-INSERT INTO instrumento (id_instrumento, nombre, descripcion, tipo, funcion) VALUES
-(1, 'Bisturí No. 3 con hoja No. 15', 'Bisturí desechable para incisiones.', 'quirurgico', 'corte'),
-(2, 'Pinza de campo Backhaus', 'Fija campos quirúrgicos a la mesa.', 'quirurgico', 'contencion'),
-(3, 'Pinza hemostática Mosquito', 'Controla sangrado de vasos pequeños.', 'quirurgico', 'hemostatica'),
-(4, 'Separador de Farabeuf', 'Separa tejidos durante el abordaje.', 'quirurgico', 'retractor'),
-(5, 'Pinza de anillo', 'Toma y sujeta piezas pequeñas.', 'quirurgico', 'contencion'),
-(6, 'Tijeras Mayo curvas', 'Para corte de tejido y suturas.', 'quirurgico', 'corte');
+INSERT INTO instrumento (id_instrumento, nombre, tipo, estado) VALUES
+(1, 'Pinza Kelly', 'hemostasia', 'disponible'), (2, 'Pinza Mosquito', 'hemostasia', 'disponible'),
+(3, 'Porta agujas Mayo-Hegar', 'sutura', 'disponible'), (4, 'Tijera Mayo', 'corte', 'disponible'),
+(5, 'Tijera Metzenbaum', 'corte', 'disponible'), (6, 'Separador Farabeuf', 'separacion', 'disponible'),
+(7, 'Cuchillo de bisturí #3', 'corte', 'disponible'), (8, 'Aspirador quirúrgico', 'aspiración', 'disponible'),
+(9, 'Electrobisturí', 'coagulación', 'disponible'), (10, 'Lámpara de cirugía', 'iluminación', 'disponible');
 
 -- Equipos
-INSERT INTO equipo (id_equipo, nombre, descripcion, tipo, funcion) VALUES
-(1, 'Monitor multiparamétrico', 'Monitorea ECG, SpO2 y presión.', 'medico', 'exploracion'),
-(2, 'Electrobisturí', 'Corte y coagulación con corriente de alta frecuencia.', 'medico', 'tratamiento'),
-(3, 'Ventilador mecánico', 'Asistencia respiratoria invasiva.', 'medico', 'tratamiento'),
-(4, 'Bomba de infusión', 'Administración controlada de fármacos.', 'medico', 'tratamiento'),
-(5, 'Laringoscopio', 'Visualización de vía aérea para intubación.', 'medico', 'diagnostico'),
-(6, 'Mesa quirúrgica de anestesia', 'Mesón para equipamiento y medicación.', 'quirurgico', 'otro');
+INSERT INTO equipo (id_equipo, nombre, descripcion, estado) VALUES
+(1, 'Monitor de signos vitales', 'Monitor multiparamétrico 5 derivaciones', 'disponible'),
+(2, 'Ventilador mecánico', 'Ventilador de cuidados críticos', 'disponible'),
+(3, 'Bomba de infusión', 'Bomba de infusión volumétrica', 'disponible'),
+(4, 'Desfibrilador', 'Desfibrilador monitor', 'disponible'),
+(5, 'Arco en C', 'Arco en C móvil para fluoroscopia', 'disponible'),
+(6, 'Microscopio quirúrgico', 'Microscopio para neurocirugía', 'disponible'),
+(7, 'Lámpara de cirugía LED', 'Lámpara quirúrgica LED de alta intensidad', 'disponible'),
+(8, 'Mesa de operaciones', 'Mesa quirúrgica electromecánica', 'disponible');
