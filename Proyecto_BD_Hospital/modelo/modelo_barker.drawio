@@ -1,6 +1,6 @@
 <mxfile host="app.diagrams.net">
   <diagram id="er-hospitales" name="Modelo ER Barker">
-    <mxGraphModel dx="1609" dy="969" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+    <mxGraphModel dx="1891" dy="969" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -86,7 +86,7 @@
           <mxGeometry height="329" width="300" x="800" y="1454" as="geometry" />
         </mxCell>
         <mxCell id="t_consentimiento_informado" parent="1" style="rounded=1;arcSize=5;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=8;spacingTop=4;spacingRight=4;fillColor=#FCE4EC;strokeColor=#D81B60;strokeWidth=1.5;fontFamily=Helvetica;fontColor=#222222;" value="&lt;div style=&quot;text-align:center;line-height:20px;font-size:12px&quot;&gt;&lt;b&gt;CONSENTIMIENTO_INFORMADO&lt;/b&gt;&lt;/div&gt;&lt;hr style=&quot;margin:3px 0;border-color:#D81B60&quot;/&gt;&lt;div style=&quot;line-height:15px;font-size:11px&quot;&gt;&lt;b&gt;# id_consentimiento&lt;/b&gt;&lt;br/&gt;* agendamiento_id (FK)&lt;br/&gt;* procedimiento_nombre&lt;br/&gt;* procedimiento_objetivo&lt;br/&gt;* procedimiento_caracteristicas&lt;br/&gt;* procedimiento_riesgos&lt;br/&gt;* medico_nombre&lt;br/&gt;* medico_firmado&lt;br/&gt;* paciente_firma_nombre&lt;br/&gt;* paciente_firmado&lt;br/&gt;* fecha_obtencion&lt;/div&gt;" vertex="1">
-          <mxGeometry height="209" width="300" x="400" y="1454" as="geometry" />
+          <mxGeometry height="209" width="300" x="400" y="1520" as="geometry" />
         </mxCell>
         <mxCell id="t_chequeo_preanestesico" parent="1" style="rounded=1;arcSize=5;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=8;spacingTop=4;spacingRight=4;fillColor=#FCE4EC;strokeColor=#D81B60;strokeWidth=1.5;fontFamily=Helvetica;fontColor=#222222;" value="&lt;div style=&quot;text-align:center;line-height:20px;font-size:12px&quot;&gt;&lt;b&gt;CHEQUEO_PREANESTESICO&lt;/b&gt;&lt;/div&gt;&lt;hr style=&quot;margin:3px 0;border-color:#D81B60&quot;/&gt;&lt;div style=&quot;line-height:15px;font-size:11px&quot;&gt;&lt;b&gt;# id_chequeo_preanestesico&lt;/b&gt;&lt;br/&gt;* agendamiento_id (FK) (UK)&lt;br/&gt;* clasificacion_asa&lt;br/&gt;* medico_asa_nombre&lt;br/&gt;* plan_anestesia&lt;br/&gt;* anestesista_nombre&lt;/div&gt;" vertex="1">
           <mxGeometry height="134" width="300" x="1200" y="1763" as="geometry" />
