@@ -1,0 +1,1 @@
+event_id,match_id,team_id,player_id,minute_value,second_value,x,y,event_type,outcome,end_x,end_y,is_goal,is_assist,is_penalty,penalty_scored,card_type

@@ -1,0 +1,279 @@
+team_id,team_name,country_id
+220,Real Madrid,214.0
+24,Liverpool,68.0
+224,Juventus,112.0
+217,Barcelona,214.0
+39,Manchester United,68.0
+169,Bayern Munich,85.0
+33,Chelsea,68.0
+180,Borussia Dortmund,85.0
+212,Atlético Madrid,214.0
+38,Tottenham Hotspur,68.0
+779,Argentina,11.0
+770,Germany,85.0
+782,Belgium,22.0
+768,England,68.0
+769,Colombia,49.0
+790,Sweden,220.0
+773,Switzerland,221.0
+797,Iran,107.0
+780,Portugal,183.0
+788,Morocco,154.0
+785,Croatia,56.0
+798,Panama,176.0
+786,Serbia,203.0
+781,Brazil,31.0
+795,Costa Rica,54.0
+774,Egypt,66.0
+783,Uruguay,242.0
+791,South Korea,121.0
+794,Mexico,147.0
+799,Saudi Arabia,200.0
+789,Poland,182.0
+771,France,78.0
+784,Peru,179.0
+787,Senegal,202.0
+772,Spain,214.0
+777,Tunisia,232.0
+776,Denmark,61.0
+775,Nigeria,166.0
+793,Iceland,104.0
+792,Australia,14.0
+796,Russia,188.0
+778,Japan,114.0
+3565,Ecuador,65.0
+941,Netherlands,160.0
+3566,Qatar,185.0
+1839,United States,241.0
+2722,Cameroon,39.0
+907,Wales,249.0
+4885,Ghana,86.0
+1833,Canada,40.0
+4886,Afghanistan,
+4887,Albania,
+4888,Algeria,
+4889,American Samoa,
+4890,Andorra,
+4891,Angola,
+4892,Anguilla,
+4893,Antigua and Barbuda,
+4894,Armenia,
+4895,Aruba,
+4896,Austria,
+4897,Azerbaijan,
+4898,Bahamas,
+4899,Bahrain,
+4900,Bangladesh,
+4901,Barbados,
+4902,Belarus,
+4903,Belize,
+4904,Benin,
+4905,Bermuda,
+4906,Bhutan,
+4907,Bolivia,
+4908,Bosnia and Herzegovina,
+4909,Botswana,
+4910,British Virgin Islands,
+4911,Brunei Darussalam,
+4912,Bulgaria,
+4913,Burkina Faso,
+4914,Burundi,
+4915,Cabo Verde,
+4916,Cambodia,
+4917,Cayman Islands,
+4918,Central African Republic,
+4919,Chad,
+4920,Chile,
+4921,China PR,
+4922,Chinese Taipei,
+4923,Comoros,
+4924,Congo,
+4925,Congo DR,
+4926,Cook Islands,
+4927,Cuba,
+4928,Curaçao,
+4929,Cyprus,
+4930,Czechia,
+4931,Côte d'Ivoire,
+4932,Djibouti,
+4933,Dominica,
+4934,Dominican Republic,
+4935,El Salvador,
+4936,Equatorial Guinea,
+4937,Eritrea,
+4938,Estonia,
+4939,Eswatini,
+4940,Ethiopia,
+4941,Faroe Islands,
+4942,Fiji,
+4943,Finland,
+4944,Gabon,
+4945,Georgia,
+4946,Gibraltar,
+4947,Greece,
+4948,Grenada,
+4949,Guam,
+4950,Guatemala,
+4951,Guinea,
+4952,Guinea-Bissau,
+4953,Guyana,
+4954,Haiti,
+4955,Honduras,
+4956,Hong Kong,
+4957,Hungary,
+4958,India,
+4959,Indonesia,
+4960,Iraq,
+4961,Israel,
+4962,Italy,
+4963,Jamaica,
+4964,Jordan,
+4965,Kazakhstan,
+4966,Kenya,
+4967,Korea DPR,
+4968,Kosovo,
+4969,Kuwait,
+4970,Kyrgyz Republic,
+4971,Laos,
+4972,Latvia,
+4973,Lebanon,
+4974,Lesotho,
+4975,Liberia,
+4976,Libya,
+4977,Liechtenstein,
+4978,Lithuania,
+4979,Luxembourg,
+4980,Macau,
+4981,Madagascar,
+4982,Malawi,
+4983,Malaysia,
+4984,Maldives,
+4985,Mali,
+4986,Malta,
+4987,Mauritania,
+4988,Mauritius,
+4989,Moldova,
+4990,Mongolia,
+4991,Montenegro,
+4992,Montserrat,
+4993,Mozambique,
+4994,Myanmar,
+4995,Namibia,
+4996,Nepal,
+4997,New Caledonia,
+4998,New Zealand,
+4999,Nicaragua,
+5000,Niger,
+5001,North Macedonia,
+5002,Northern Ireland,
+5003,Norway,
+5004,Oman,
+5005,Pakistan,
+5006,Palestine,
+5007,Papua New Guinea,
+5008,Paraguay,
+5009,Philippines,
+5010,Puerto Rico,
+5011,Republic of Ireland,
+5012,Romania,
+5013,Rwanda,
+5014,Samoa,
+5015,San Marino,
+5016,Scotland,
+5017,Seychelles,
+5018,Sierra Leone,
+5019,Singapore,
+5020,Slovakia,
+5021,Slovenia,
+5022,Solomon Islands,
+5023,Somalia,
+5024,South Africa,
+5025,South Sudan,
+5026,Sri Lanka,
+5027,St Kitts and Nevis,
+5028,St Lucia,
+5029,St Vincent and the Grenadines,
+5030,Sudan,
+5031,Suriname,
+5032,Syria,
+5033,São Tomé and Príncipe,
+5034,Tahiti,
+5035,Tajikistan,
+5036,Tanzania,
+5037,Thailand,
+5038,The Gambia,
+5039,Timor-Leste,
+5040,Togo,
+5041,Tonga,
+5042,Trinidad and Tobago,
+5043,Turkmenistan,
+5044,Turks and Caicos Islands,
+5045,Türkiye,
+5046,US Virgin Islands,
+5047,Uganda,
+5048,Ukraine,
+5049,United Arab Emirates,
+5050,Uzbekistan,
+5051,Vanuatu,
+5052,Venezuela,
+5053,Vietnam,
+5054,Yemen,
+5055,Zambia,
+5056,Zimbabwe,
+5057,Yugoslavia,
+5058,Czechoslovakia,
+5059,Germany FR,
+5060,Turkey,
+5061,Soviet Union,
+5062,German DR,
+5063,Zaire,
+5064,"rn"">United Arab Emirates",
+5065,"rn"">Republic of Ireland",
+5066,"rn"">Trinidad and Tobago",
+5067,"rn"">Serbia and Montenegro",
+5068,Czech Republic,
+5069,C�te d'Ivoire,
+5070,"rn"">Bosnia and Herzegovina",
+5071,Dutch East Indies,
+5072,Gambia,
+5073,St. Lucia,
+5074,St. Kitts and Nevis,
+5075,St. Vincent and the Grenadines,
+207,Valencia,214.0
+219,RC Deportivo La Coruña,214.0
+215,Athletic Club,214.0
+208,Las Palmas,214.0
+322,Eibar,214.0
+218,Real Betis,214.0
+222,Villarreal,214.0
+221,Levante UD,214.0
+214,Espanyol,214.0
+205,Leganés,214.0
+209,Celta Vigo,214.0
+213,Sevilla,214.0
+216,Getafe,214.0
+223,Málaga,214.0
+211,Girona,214.0
+206,Deportivo Alavés,214.0
+210,Real Sociedad,214.0
+422,Osasuna,214.0
+1041,Sporting Gijón,214.0
+1049,Granada,214.0
+627,Tenerife,214.0
+395,Real Zaragoza,214.0
+1043,Mallorca,214.0
+901,Real Valladolid,214.0
+403,Almería,214.0
+1219,Xerez,214.0
+1217,Racing Santander,214.0
+1218,Hércules,214.0
+360,Rayo Vallecano,214.0
+1042,Elche,214.0
+373,Córdoba CF,214.0
+608,Albacete,214.0
+552,Cádiz,214.0
+1036,Gimnàstic Tarragona,214.0
+1220,Recreativo Huelva,214.0
+902,Huesca,214.0
+1230,Real Murcia CF,214.0
+444,CD Numancia de Soria,214.0

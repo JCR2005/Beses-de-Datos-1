@@ -1,0 +1,257 @@
+stadium_id,stadium_name,city_name
+1,NSK Olimpiyskyi,
+2,Principality Stadium,
+3,Wembley Stadium,
+4,Allianz Arena,
+5,Estádio do Sport Lisboa e Benfica,
+6,Olympiastadion Berlin,
+7,Stadio Giuseppe Meazza,
+8,Estádio Cívitas Metropolitano,
+9,Estadio Azteca,
+10,Otkritie Bank Arena,
+11,Stadion Kaliningrad,
+12,Saint-Petersburg Stadium,
+13,Mordovia Arena,
+14,Stadion Luzhniki,
+15,Stadion Nizhny Novgorod (Nizhniy Novgorod),
+16,Ekaterinburg Arena,
+17,Rostov Arena,
+18,Olimpiyskiy Stadion Fisht,
+19,Ak Bars Arena,
+20,Volgograd Arena,
+21,Solidarnost Arena,
+22,Stadium 974,
+23,Ahmad bin Ali Stadium,
+24,Al Janoub Stadium,
+25,Lusail Stadium,
+26,Sheikh Khalifa International Stadium,
+27,Education City Stadium,
+28,Al Thumama Stadium,
+29,Al Bayt Stadium,
+30,Pocitos,Montevideo
+31,Parque Central,Montevideo
+32,Estadio Centenario,Montevideo
+33,Stadio Benito Mussolini,Turin
+34,Giorgio Ascarelli,Naples
+35,San Siro,Milan
+36,Littorale,Bologna
+37,Giovanni Berta,Florence
+38,Luigi Ferraris,Genoa
+39,Nazionale PNF,Rome
+40,Littorio,Trieste
+41,Parc des Princes,Paris
+42,Velodrome Municipale,Reims
+43,Stade Olympique,Colombes
+44,Stade Municipal,Toulouse
+45,Stade V�lodrome,Marseilles
+46,Stade de la Meinau,Strasbourg
+47,Cavee Verte,Le Havre
+48,Stade du Parc Lescure,Bordeaux
+49,Victor Boucquey,Lille
+50,Fort Carree,Antibes
+51,Maracan� - Est�dio Jornalista M�rio Filho,Rio De Janeiro
+52,Durival de Brito,Curitiba
+53,Pacaembu,Sao Paulo
+54,Independencia,Belo Horizonte
+55,Eucaliptos,Porto Alegre
+56,Ilha do Retiro,Recife
+57,Wankdorf Stadium,Berne
+58,Hardturm,Zurich
+59,Charmilles,Geneva
+60,La Pontaise,Lausanne
+61,St. Jakob,Basel
+62,Comunale di Cornaredo,Lugano
+63,Rasunda Stadium,Solna
+64,Nya Ullevi,Gothenburg
+65,Malmo Stadion,Malm�
+66,Jarnvallen,Sandviken
+67,Idrottsparken,Norrk�Ping
+68,Arosvallen,Vasteras
+69,Rimnersvallen,Udevalla
+70,Orjans Vall,Halmstad
+71,Ryavallen,Boras
+72,Olympia Stadium,Helsingborg
+73,Tunavallen,Eskilstuna
+74,Eyravallen,Orebro
+75,Carlos Dittborn,Arica
+76,Estadio Sausalito,Vina Del Mar
+77,Estadio El Teniente-Codelco,Rancagua
+78,Nacional,Santiago De Chile
+79,Wembley Stadium,London
+80,Hillsborough,Sheffield
+81,Goodison Park,Liverpool
+82,Ayresome Park,Middlesbrough
+83,Old Trafford Stadium,Manchester
+84,Villa Park,Birmingham
+85,Roker Park Ground,Sunderland
+86,White City,London
+87,Estadio Azteca,Mexico City
+88,Cuauhtemoc,Puebla
+89,Nou Camp - Estadio Le�n,Leon
+90,Jalisco,Guadalajara
+91,Luis Dosal,Toluca
+92,Waldstadion,Frankfurt/Main
+93,Olympiastadion,Berlin West
+94,Volksparkstadion,Hamburg
+95,Westfalenstadion,Dortmund
+96,Niedersachsenstadion,Hanover
+97,Rheinstadion,D�Sseldorf
+98,Olympiastadion,Munich
+99,Neckarstadion,Stuttgart
+100,Parkstadion,Gelsenkirchen
+101,El Monumental - Estadio Monumental Antonio Vespuci,Buenos Aires
+102,Estadio Jos� Mar�a Minella,Mar Del Plata
+103,Arroyito - Estadio Dr. Lisandro de la Torre,Rosario
+104,Jose Amalfitani,Buenos Aires
+105,Estadio Ol�mpico Chateau Carreras,Cordoba
+106,San Martin,Mendoza
+107,Camp Nou,Barcelona
+108,Estadio Municipal de Bala�dos,Vigo
+109,Ramon Sanchez Pizjuan,Seville
+110,Riazor,La Coru�A
+111,Nuevo Estadio,Elche
+112,La Rosaleda,Malaga
+113,El Molinon,Gijon
+114,San Mames,Bilbao
+115,Luis Casanova,Valencia
+116,Carlos Tartiere,Oviedo
+117,Jose Zorrilla,Valladolid
+118,La Romareda,Zaragoza
+119,Jose Rico Perez,Alicante
+120,Benito Villamarin,Seville
+121,Vicente Calderon,Madrid
+122,Sarria,Barcelona
+123,Santiago Bernabeu,Madrid
+124,Estadio Irapuato,Irapuato
+125,Estadio Ol�mpico Universitario,Mexico City
+126,Estadio Universitario,Monterrey
+127,Tres de Marzo,Guadalajara
+128,Tecnologico,Monterrey
+129,Bombonera - Estadio Nemesio Diez,Toluca
+130,Neza,Nezahualcoyotl
+131,Estadio Corregidora,Queretaro
+132,Giuseppe Meazza,Milan
+133,Stadio San Nicola,Bari
+134,Renato Dall Ara,Bologna
+135,Stadio Olimpico,Rome
+136,Comunale,Florence
+137,Stadio delle Alpi,Turin
+138,Sant Elia,Cagliari
+139,Marc Antonio Bentegodi,Verona
+140,Della Favorita,Palermo
+141,Dacia Arena,Udine
+142,San Paolo,Naples
+143,Friuli,Udine
+144,Cotton Bowl,Dallas
+145,Soldier Field,Chicago
+146,Pontiac Silverdome,Detroit
+147,Giants Stadium,New York/New Jersey
+148,Rose Bowl,Los Angeles
+149,Citrus Bowl,Orlando
+150,RFK Stadium,Washington Dc
+151,Stanford Stadium,San Francisco
+152,Foxboro Stadium,Boston
+153,Stade de France,Saint-Denis
+154,La Mosson,Montpellier
+155,Stade Felix Bollaert,Lens
+156,La Beaujoire,Nantes
+157,Stade de Gerland,Lyon
+158,Stade Geoffroy Guichard,Saint-Etienne
+159,Seoul World Cup Stadium,Seoul
+160,Munsu Football Stadium,Ulsan
+161,Niigata Stadium Big Swan,Niigata
+162,Sapporo Dome,Sapporo
+163,Kashima Stadium,Ibaraki
+164,Busan Asiad Main Stadium,Busan
+165,Saitama Stadium 2002,Saitama
+166,Gwangju World Cup Stadium,Gwangju
+167,Kobe Wing Stadium,Kobe
+168,Suwon World Cup Stadium,Suwon
+169,Daegu World Cup Stadium,Daegu
+170,Jeonju World Cup Stadium,Jeonju
+171,Jeju World Cup Stadium,Jeju
+172,Incheon Football Stadium,Incheon
+173,International Stadium Yokohama,Yokohama
+174,Miyagi Stadium,Rifu
+175,Oita Stadium Big Eye,Oita
+176,Shizuoka Stadium Ecopa,Shizuoka
+177,Osaka Nagai Stadium,Osaka
+178,Daejeon World Cup Stadium,Daejeon
+179,"FIFA World Cup Stadium, Munich",Munich
+180,"FIFA World Cup Stadium, Gelsenkirchen",Gelsenkirchen
+181,"FIFA World Cup Stadium, Frankfurt",Frankfurt/Main
+182,"FIFA World Cup Stadium, Dortmund",Dortmund
+183,"FIFA World Cup Stadium, Hamburg",Hamburg
+184,Zentralstadion,Leipzig
+185,Franken-Stadion,Nuremberg
+186,"FIFA World Cup Stadium, Cologne",Cologne
+187,Fritz-Walter-Stadion,Kaiserslautern
+188,"FIFA World Cup Stadium, Hanover",Hanover
+189,Gottlieb-Daimler-Stadion,Stuttgart
+190,Olympiastadion,Berlin
+191,Soccer City Stadium,Johannesburg
+192,Cape Town Stadium,Cape Town
+193,Port Elizabeth Stadium,Nelson Mandela Bay/Port Elizabeth
+194,Ellis Park Stadium,Johannesburg
+195,Royal Bafokeng Sports Palace,Phokeng
+196,Peter Mokaba Stadium,Polokwane
+197,Loftus Versfeld Stadium,Tshwane/Pretoria
+198,Durban Stadium,Durban
+199,Free State Stadium,Mangaung/Bloemfontein
+200,Mbombela Stadium,Nelspruit
+201,Arena de Sao Paulo,Sao Paulo
+202,Estadio das Dunas,Natal
+203,Arena Fonte Nova,Salvador
+204,Arena Pantanal,Cuiaba
+205,Estadio Mineirao,Belo Horizonte
+206,Estadio Castelao,Fortaleza
+207,Arena Amazonia,Manaus
+208,Arena Pernambuco,Recife
+209,Estadio Nacional,Brasilia
+210,Estadio Beira-Rio,Porto Alegre
+211,Estadio do Maracana,Rio De Janeiro
+212,Arena da Baixada,Curitiba
+213,Spotify Camp Nou,
+214,Estadio Abanca-Riazor,
+215,Estadio de Gran Canaria,
+216,Estadio Municipal de Ipurúa,
+217,Estadio Santiago Bernabéu,
+218,Estadio Benito Villamarín,
+219,San Mamés Barria,
+220,RCDE Stadium,
+221,Estadio Ramón Sánchez Pizjuán,
+222,Estadio de Mestalla,
+223,Estadio de la Cerámica,
+224,Estadi Municipal de Montilivi,
+225,Coliseum Alfonso Pérez,
+226,Estadio Municipal de Butarque,
+227,Estadio de Mendizorroza,
+228,Reale Arena,
+229,Abanca-Balaídos,
+230,Estadio El Sadar,
+231,Estadio La Rosaleda,
+232,Estadio Vicente Calderón,
+233,Estadio Heliodoro Rodríguez Lopéz,
+234,Estadi Mallorca Son Moix,
+235,Estadio Municipal José Zorrilla,
+236,Estadio Municipal El Molinón,
+237,Power Horse Stadium – Estadio de los Juegos Mediterráneos,
+238,Estadio Municipal de Chapín,
+239,Estadio San Mamés,
+240,Campos de Sport de El Sardinero,
+241,Estadio de la Romareda,
+242,Estadio José Rico Pérez,
+243,Estadio Ciudad de Valencia,
+244,Estadio Nuevo Los Cármenes,
+245,Estadio de Vallecas,
+246,Estadio Manuel Martínez Valero,
+247,Estadio Nuevo Arcángel,
+248,Estadio Carlos Belmonte,
+249,Estadi Olímpic Lluís Companys,
+250,Estadio Nuevo Mirandilla,
+251,Nou Estadi Costa Daurada,
+252,Estadio Nuevo Colombino,
+253,Estadio Enrique Roca de Murcia,
+254,Los Pajaritos,
+255,Estadio Alfredo Di Stéfano,
+256,Estadio El Alcoraz,

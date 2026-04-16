@@ -1,0 +1,33 @@
+ sudo rm -f /tmp/bd1_final.fdb
+ sudo isql-fb -q -ch UTF8 -i "/home/carlos/Documentos/Beses-de-Datos-1/Proyecto 1/sql/00_create_db.sql"
+
+
+sudo chown firebird:firebird /tmp/bd1_final.fdb && sudo chmod 660 /tmp/bd1_final.fdb
+
+"/home/carlos/Documentos/Beses-de-Datos-1/Proyecto 1/.venv/bin/python" "/home/carlos/Documentos/Beses-de-Datos-1/Proyecto 1/analysis.py"
+Reportes generados en: /home/carlos/Documentos/Beses-de-Datos-1/Proyecto 1/reports
+
+
+CONNECT '/tmp/bd1_final.fdb' USER 'SYSDBA' PASSWORD '89c9dd1c';
+
+
+-- SCRIPT DE CONTEO TOTAL DE DATOS
+SELECT SUM(TOTAL) AS TOTAL_GENERAL
+FROM (
+    SELECT COUNT(*) AS TOTAL FROM country
+    UNION ALL SELECT COUNT(*) FROM competition
+    UNION ALL SELECT COUNT(*) FROM season
+    UNION ALL SELECT COUNT(*) FROM competition_season
+    UNION ALL SELECT COUNT(*) FROM team
+    UNION ALL SELECT COUNT(*) FROM coach
+    UNION ALL SELECT COUNT(*) FROM player
+    UNION ALL SELECT COUNT(*) FROM venue
+    UNION ALL SELECT COUNT(*) FROM stadium
+    UNION ALL SELECT COUNT(*) FROM stage
+    UNION ALL SELECT COUNT(*) FROM "MATCH"
+    UNION ALL SELECT COUNT(*) FROM match_team_coach
+    UNION ALL SELECT COUNT(*) FROM match_team_stats
+    UNION ALL SELECT COUNT(*) FROM lineup
+    UNION ALL SELECT COUNT(*) FROM "EVENT"
+    UNION ALL SELECT COUNT(*) FROM team_ranking
+);
