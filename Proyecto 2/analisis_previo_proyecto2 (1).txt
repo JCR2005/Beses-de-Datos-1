@@ -1,0 +1,1104 @@
+
+
+Juan Carlos Rodriguez López 2022131970
+
+
+  ANÁLISIS PREVIO — PROYECTO 2: INDICADORES SOCIALES Y SANITARIOS DE GUATEMALA
+  Bases de Datos 1 — 2026
+
+
+Fecha: 31 de marzo de 2026
+Sistema gestor: Firebird 3.0 (el mismo del Proyecto 1)
+
+
+
+
+ TABLAS BASE — EL NÚCLEO DEL SISTEMA
+
+
+
+------------------------------------------------------------------------
+DEPARTAMENTO
+------------------------------------------------------------------------
+Los 22 departamentos de Guatemala. Casi todos los archivos del proyecto
+incluyen el nombre del departamento como texto. En los casos donde no hay
+código, el mapeo se hace por nombre contra este catálogo.
+
+  id_departamento     INT  — clave primaria
+  nombre_departamento VARCHAR(100)
+
+Fuente: Diccionario de Faltas Judiciales, con los 22 códigos oficiales.
+
+------------------------------------------------------------------------
+MUNICIPIO
+------------------------------------------------------------------------
+Los 340 municipios del país. Se separa de DEPARTAMENTO porque el nombre
+del municipio depende de su propio ID, no del departamento al que pertenece
+— eso sería una dependencia transitiva y violaría la 3FN.
+
+  id_municipio      INT  — clave primaria
+  id_departamento   INT  — FK a DEPARTAMENTO
+  nombre_municipio  VARCHAR(100)
+  codigo_municipio  INT  — ej: 101  Guatemala capital, 1601  Cobán
+
+Fuente: Diccionario de Faltas Judiciales, municipios 101 al 2217.
+
+------------------------------------------------------------------------
+AREA_GEOGRAFICA
+------------------------------------------------------------------------
+Solo dos valores: Urbana y Rural. Se referencia en MUNICIPIO, PERSONA
+y en varias tablas de violencia. Parece trivial pero evitar repetir el
+string "Urbana" miles de veces tiene su valor en consistencia y peso.
+
+  id_area      INT
+  descripcion  VARCHAR(20)
+
+------------------------------------------------------------------------
+CAT_MES
+------------------------------------------------------------------------
+
+  id_mes  INT
+  nombre  VARCHAR(15)
+
+------------------------------------------------------------------------
+GRUPO_ETARIO
+------------------------------------------------------------------------
+Los rangos de edad usados en los registros. El problema real aquí es que
+MSPAS usa una nomenclatura ("< 1 mes", "1a a 4 años") y los archivos de
+violencia usan otra ("10a a 14 años", "menores"). Esta tabla unifica todo.
+
+  id_grupo_etario  INT
+  descripcion      VARCHAR(50)
+  edad_minima      INT
+  edad_maxima      INT
+
+------------------------------------------------------------------------
+SEXO
+------------------------------------------------------------------------
+  id_sexo      INT
+  descripcion  VARCHAR(20)  — Masculino, Femenino, No especificado
+
+------------------------------------------------------------------------
+NIVEL_ESCOLARIDAD
+------------------------------------------------------------------------
+Factor transversal que pide el proyecto. Aparece en Faltas Judiciales,
+VIF, ENTI y en la tabla PERSONA.
+
+  id_escolaridad  INT
+  descripcion     VARCHAR(50)  — Preprimaria, Primaria, Básico,
+                                  Diversificado, Superior, Ninguno
+
+Fuente: Diccionario de Faltas Judiciales y base VIF 2023.
+
+------------------------------------------------------------------------
+ESTADO_CIVIL
+------------------------------------------------------------------------
+  id_estado_civil  INT
+  descripcion      VARCHAR(30)  — Soltero, Casado, Unido, Viudo, Divorciado
+
+------------------------------------------------------------------------
+ETNIA
+------------------------------------------------------------------------
+
+  id_etnia          INT
+  id_pueblo         INT  — FK a CAT_PUEBLO
+  id_comunidad_ling INT  — FK a CAT_COMUNIDAD_LINGUISTICA
+
+Fuente: Datos de discriminación 2016-2023, VIF 2023, Faltas Judiciales.
+
+------------------------------------------------------------------------
+NACIONALIDAD
+------------------------------------------------------------------------
+  id_nacionalidad  INT
+  codigo           VARCHAR(10)
+  descripcion      VARCHAR(100)
+  region           VARCHAR(50)  — América Central, América del Sur...
+
+Fuente: Diccionario de Faltas Judiciales (cubre ~80 países).
+
+------------------------------------------------------------------------
+OCUPACION
+------------------------------------------------------------------------
+
+  id_ocupacion  INT
+  codigo_ciuo   VARCHAR(10)
+  descripcion   VARCHAR(200)
+  gran_grupo    VARCHAR(100)
+  subgrupo      VARCHAR(100)
+
+------------------------------------------------------------------------
+CONDICION_LABORAL + SECTOR_ECONOMICO
+------------------------------------------------------------------------
+
+  CONDICION_LABORAL:
+    id_condicion        INT
+    tipo_empleo         VARCHAR(50)  — Formal, Informal, Independiente,
+                                       Desempleado, No aplica
+    id_sector_economico INT  — FK a SECTOR_ECONOMICO
+
+  SECTOR_ECONOMICO:
+    id_sector_economico  INT
+    nombre               VARCHAR(50)  — Agropecuario, Industria, Comercio,
+                                        Servicios, Construcción
+
+------------------------------------------------------------------------
+PERSONA
+------------------------------------------------------------------------
+
+  id_persona              INT  — PK
+  nombre                  VARCHAR(100)   generado con Faker
+  apellido                VARCHAR(100)   generado con Faker
+  fecha_nacimiento        DATE           Faker, consistente con edad_per
+  edad                    INT
+  id_sexo                 INT  — FK a SEXO
+  id_escolaridad          INT  — FK a NIVEL_ESCOLARIDAD
+  id_estado_civil         INT  — FK a ESTADO_CIVIL
+  id_etnia                INT  — FK a ETNIA
+  id_nacionalidad         INT  — FK a NACIONALIDAD
+  id_ocupacion            INT  — FK a OCUPACION
+  id_condicion_laboral    INT  — FK a CONDICION_LABORAL
+  id_municipio_residencia INT  — FK a MUNICIPIO
+  id_area                 INT  — FK a AREA_GEOGRAFICA
+  alfabeta                BOOLEAN
+  personas_en_hogar       INT
+  id_idioma_principal     INT  — FK a CAT_COMUNIDAD_LINGUISTICA
+
+
+EJE 1 — VIOLENCIA
+
+
+Antes de ver cada subsistema, hay tres catálogos que se comparten entre
+varios de ellos:
+
+  CAT_TIPO_FALLO     — usado en Hechos Delictivos, Sentencias y VCM
+  CAT_DESPACHO       — usado en Sentencias y VCM
+  CAT_FUENTE_SENTENCIA — [MP, OJ], usado en Sentencias y VCM
+
+Se documentan dentro del primer subsistema que los define, pero aplican
+en todos los que los referencian.
+
+------------------------------------------------------------------------
+3.1 HECHOS DELICTIVOS
+------------------------------------------------------------------------
+Fuentes analizadas:
+  Hechos delictivos general — 148,537 registros
+  INACIF Médico Legal       — 39,968 registros
+  INACIF Exhumaciones       — 45,278 registros
+  INACIF Necropsias         — 11,038 registros
+  Detenidos PNC             — 59,812 registros
+
+Los archivos INACIF traen dos columnas clave: delito_com (el delito
+específico) y g_delitos (el grupo al que pertenece). De ahí vienen
+TIPO_HECHO_DELICTIVO y GRUPO_DELITO.
+
+  GRUPO_DELITO:
+    id_grupo_delito  INT
+    nombre           VARCHAR(100)  — Delitos contra la vida, Propiedad...
+
+  TIPO_HECHO_DELICTIVO:
+    id_tipo_hecho   INT
+    nombre          VARCHAR(100)  — Homicidio, Robo, Asalto... (de delito_com)
+    id_grupo_delito INT  — FK a GRUPO_DELITO (de g_delitos)
+    codigo_tipo     VARCHAR(20)
+
+Los catálogos complementarios de este subsistema normalizan campos que
+de otro modo serían VARCHAR repetitivos en HECHO_DELICTIVO:
+
+  CAT_DIA_SEMANA        — Lunes a Domingo
+  CAT_GRUPO_HORA        — Mañana, Tarde, Noche
+  CAT_CLASIF_EVALUACION — clasificación de evaluación del hecho
+  CAT_INVOLUCRAMIENTO   — tipo de involucramiento del detenido
+  CAT_TIPO_FALLO        — Condenatoria, Absolutoria, etc. (catálogo compartido)
+  CAT_TIPO_LEY
+  CAT_TITULO_LEY        — FK a CAT_TIPO_LEY
+  CAT_CAPITULO_LEY      — FK a CAT_TITULO_LEY
+  CAT_CAUSA_MUERTE      — solo aplica en necropsias
+  CAT_ROL_PERSONA       — Víctima, Agraviado, Sindicado
+
+La jerarquía Tipo -> Título -> Capítulo refleja la estructura real de la
+legislación guatemalteca que aparece en los archivos de detenidos PNC.
+
+  HECHO_DELICTIVO:
+    id_hecho         INT
+    id_municipio     INT  — FK a MUNICIPIO
+    id_area          INT  — FK a AREA_GEOGRAFICA
+    año              INT
+    id_mes           INT  — FK a CAT_MES
+    dia              INT
+    id_dia_semana    INT  — FK a CAT_DIA_SEMANA
+    hora             TIME
+    id_grupo_hora    INT  — FK a CAT_GRUPO_HORA
+    zona             INT
+    id_clasif_eval   INT  — FK a CAT_CLASIF_EVALUACION
+
+  HECHO_DELICTIVO_TIPO_HECHO (tabla puente N:M):
+    id_hecho_delictivo_tipo  INT
+    id_hecho                 INT  — FK a HECHO_DELICTIVO
+    id_tipo_hecho            INT  — FK a TIPO_HECHO_DELICTIVO
+
+Se usa tabla puente porque un mismo hecho puede clasificarse bajo
+múltiples tipos (por ejemplo: homicidio + uso de arma de fuego).
+
+  VICTIMA_HECHO:
+    id_victima_hecho  INT
+    id_hecho          INT  — FK a HECHO_DELICTIVO
+    id_persona        INT  — FK a PERSONA
+    id_grupo_etario   INT  — FK a GRUPO_ETARIO
+    id_rol            INT  — FK a CAT_ROL_PERSONA
+
+  DETENIDO_PNC:
+    id_detenido       INT
+    id_hecho          INT  — FK a HECHO_DELICTIVO
+    id_persona        INT  — FK a PERSONA
+    año_registro      INT
+    id_mes_registro   INT  — FK a CAT_MES
+    id_involucramiento INT  — FK a CAT_INVOLUCRAMIENTO
+    id_tipo_fallo     INT  — FK a CAT_TIPO_FALLO
+    id_capitulo_ley   INT  — FK a CAT_CAPITULO_LEY
+
+  TIPO_SERVICIO_INACIF:
+    id_tipo_servicio  INT
+    nombre            VARCHAR(50)  — Médico Legal, Exhumación, Necropsia
+
+  SERVICIO_INACIF:
+    id_servicio       INT
+    id_tipo_servicio  INT  — FK a TIPO_SERVICIO_INACIF
+    id_hecho          INT  — FK a HECHO_DELICTIVO
+    id_persona        INT  — FK a PERSONA
+    id_municipio      INT  — FK a MUNICIPIO
+    año_ingreso       INT
+    id_mes_ingreso    INT  — FK a CAT_MES
+    dia_ingreso       INT
+    id_causa_muerte   INT  — FK a CAT_CAUSA_MUERTE (solo necropsias)
+
+------------------------------------------------------------------------
+3.2 SENTENCIAS
+------------------------------------------------------------------------
+Fuente: Excel de sentencias del proyecto + scraping de observatorio.mp.gob.gt
+
+solo aclaracion el observatorio tiene información detallada de
+cada sentencia (nombre del sentenciado, pena, etc.), pero no todas las
+sentencias del Excel tienen su correspondiente entrada en el observatorio.
+Por eso DETALLE_SENTENCIA es opcional — puede existir o no para cada
+registro en SENTENCIA.
+
+  CAT_DESPACHO:
+    id_despacho  INT
+    nombre       VARCHAR(150)
+
+  CAT_FUENTE_SENTENCIA:
+    id_fuente_sent  INT
+    nombre          VARCHAR(20)  — MP, OJ
+
+  TIPO_DELITO_SENTENCIA:
+    id_tipo_delito  INT
+    nombre          VARCHAR(200)
+    codigo          VARCHAR(20)
+
+  SENTENCIA:
+    id_sentencia    INT
+    id_tipo_delito  INT  — FK a TIPO_DELITO_SENTENCIA
+    id_municipio    INT  — FK a MUNICIPIO
+    año             INT
+    id_mes          INT  — FK a CAT_MES
+    id_tipo_fallo   INT  — FK a CAT_TIPO_FALLO
+    id_fuente_sent  INT  — FK a CAT_FUENTE_SENTENCIA
+    id_despacho     INT  — FK a CAT_DESPACHO
+
+  DETALLE_SENTENCIA (relación 1:1 opcional con SENTENCIA):
+    id_detalle         INT
+    id_sentencia       INT  — FK a SENTENCIA
+    url_observatorio   VARCHAR(300)
+    fecha_sentencia    DATE
+    descripcion_caso   TEXT
+    delito_text        TEXT  — delito tal como aparece en la fuente
+    texto_sentencia    TEXT  — resumen de la pena
+    reparacion_text    TEXT  — reparación digna / medidas
+    fiscalia_text      TEXT  — fiscalía responsable
+
+  SENTENCIA_PERSONA (puente N:M entre SENTENCIA y PERSONA):
+    id_sentencia_persona  INT
+    id_sentencia          INT  — FK a SENTENCIA
+    id_persona            INT  — FK a PERSONA
+    nombre_text           TEXT  — nombre del sentenciado en la fuente
+
+------------------------------------------------------------------------
+3.3 VIOLENCIA CONTRA LA MUJER
+------------------------------------------------------------------------
+
+aclarivion sobre el archivo "Hechos delictivos contra mujeres 2008-2024": ese
+archivo es un agregado por departamento y año, sin datos individuales.
+Se modela en HECHO_VCM con los campos de persona y municipio en NULL
+cuando corresponde a ese origen.
+
+  TIPO_DELITO_VCM:
+    id_tipo_delito_vcm  INT
+    nombre              VARCHAR(100)  — Femicidio, VIF, Acoso sexual...
+
+  CAT_ESTADO_CASO_VCM:
+    id_estado_caso  INT
+    descripcion     VARCHAR(50)  — Archivado, Sobreseído, Desestimado
+
+  CAT_TIPO_ATENCION:
+    id_tipo_atencion  INT
+    descripcion       VARCHAR(150)
+
+  CAT_ORIENTACION_SEXUAL:
+    id_orientacion  INT
+    descripcion     VARCHAR(50)
+
+  CAT_INDICADOR_VCM:
+    id_indicador_vcm  INT
+    descripcion       VARCHAR(150)
+
+  CAT_TIPO_EVALUACION_VCM:
+    id_tipo_eval_vcm  INT
+    descripcion       VARCHAR(150)
+
+  HECHO_VCM:
+    id_hecho_vcm        INT
+    id_persona_victima  INT  — FK a PERSONA (NULL si es dato agregado)
+    id_municipio        INT  — FK a MUNICIPIO (NULL si es dato agregado)
+    año                 INT
+    id_mes              INT  — FK a CAT_MES
+    dia                 INT
+    id_estado_caso      INT  — FK a CAT_ESTADO_CASO_VCM
+
+  HECHO_VCM_TIPO_DELITO (puente N:M):
+    id_hecho_vcm_tipo_delito  INT
+    id_hecho_vcm              INT  — FK a HECHO_VCM
+    id_tipo_delito_vcm        INT  — FK a TIPO_DELITO_VCM
+
+  ATENCION_IDVC:
+    id_atencion        INT
+    id_hecho_vcm       INT  — FK a HECHO_VCM
+    id_municipio_sede  INT  — FK a MUNICIPIO
+    fecha_atencion     DATE
+    id_tipo_atencion   INT  — FK a CAT_TIPO_ATENCION
+    id_grupo_etario    INT  — FK a GRUPO_ETARIO
+    id_orientacion     INT  — FK a CAT_ORIENTACION_SEXUAL
+
+  SENTENCIA_VCM:
+    id_sentencia_vcm  INT
+    id_hecho_vcm      INT  — FK a HECHO_VCM
+    id_municipio      INT  — FK a MUNICIPIO
+    año               INT
+    id_mes            INT  — FK a CAT_MES
+    id_tipo_fallo     INT  — FK a CAT_TIPO_FALLO
+    id_fuente_sent    INT  — FK a CAT_FUENTE_SENTENCIA
+    id_despacho       INT  — FK a CAT_DESPACHO
+    id_indicador_vcm  INT  — FK a CAT_INDICADOR_VCM
+
+Los archivos de sentencias VCM del MP y del OJ son datos agregados
+(no hay caso individual asociado), por eso tienen sus propias tablas
+de resumen en vez de usar SENTENCIA_VCM directamente:
+
+  SENTENCIA_VCM_MP_RESUMEN:
+    id_sent_vcm_mp   INT
+    dia              INT
+    id_mes           INT  — FK a CAT_MES
+    año              INT
+    id_indicador_vcm INT  — FK a CAT_INDICADOR_VCM
+    valor            INT
+
+  SENTENCIA_VCM_OJ_RESUMEN:
+    id_sent_vcm_oj    INT
+    id_departamento   INT  — FK a DEPARTAMENTO
+    id_despacho       INT  — FK a CAT_DESPACHO
+    id_tipo_delito_vcm INT  — FK a TIPO_DELITO_VCM
+    id_tipo_fallo     INT  — FK a CAT_TIPO_FALLO
+    id_mes            INT  — FK a CAT_MES
+    año               INT
+    valor             INT
+
+  MEDIDA_SEGURIDAD_VCM:
+    id_medida     INT
+    id_hecho_vcm  INT  — FK a HECHO_VCM
+    id_municipio  INT  — FK a MUNICIPIO
+    id_despacho   INT  — FK a CAT_DESPACHO
+    año           INT
+
+  EVALUACION_INACIF_VCM:
+    id_evaluacion      INT
+    id_hecho_vcm       INT  — FK a HECHO_VCM
+    id_municipio_sede  INT  — FK a MUNICIPIO
+    fecha              DATE
+    id_tipo_eval_vcm   INT  — FK a CAT_TIPO_EVALUACION_VCM
+    id_orientacion     INT  — FK a CAT_ORIENTACION_SEXUAL
+    id_grupo_etario    INT  — FK a GRUPO_ETARIO
+
+------------------------------------------------------------------------
+3.4 VIOLENCIA INTRAFAMILIAR (VIF)
+------------------------------------------------------------------------
+
+Este subsistema fue el más normalizado durante el proceso de diseño.
+Se crearon múltiples tablas hija para evitar campos repetitivos y
+permitir escalabilidad (por ejemplo, una víctima puede tener múltiples
+discapacidades, múltiples hijos de distintos sexos, etc.)
+
+  TIPO_AGRESION_VIF:
+    id_tipo_agresion  INT
+    descripcion       VARCHAR(100)
+
+  TIPO_MEDIDA_VIF:
+    id_tipo_medida  INT
+    descripcion     VARCHAR(100)
+
+  CAT_INSTITUCION_DENUNCIA:
+    id_institucion  INT
+    nombre          VARCHAR(150)
+
+  CAT_ORGANISMO_JURISDICCIONAL:
+    id_organismo_jur  INT
+    nombre            VARCHAR(150)
+
+  CAT_LEY_APLICABLE:
+    id_ley_aplicable  INT
+    descripcion       VARCHAR(150)
+
+  CAT_ORGANISMO_REMITE:
+    id_organismo_rem  INT
+    nombre            VARCHAR(150)
+
+  CAT_TIPO_DISCAPACIDAD:
+    id_tipo_discap  INT
+    descripcion     VARCHAR(150)
+
+  CAT_RELACION_AGRESOR:
+    id_relacion_agr  INT
+    descripcion      VARCHAR(100)
+
+  CAT_TIPO_ARTICULO:
+    id_tipo_articulo  INT
+    nombre            VARCHAR(20)  — VIF, VCM, CODPEN, OTRAS
+
+  HECHO_VIF:
+    id_hecho_vif              INT
+    numero_boleta             VARCHAR(30)
+    codigo_depto_hecho        VARCHAR(20)  — código original del archivo
+    codigo_mcpio_hecho        VARCHAR(20)
+    codigo_depto_denuncia     VARCHAR(20)
+    codigo_mcpio_denuncia     VARCHAR(20)
+    id_municipio_hecho        INT  — FK a MUNICIPIO (lugar donde ocurrió)
+    id_municipio_denuncia     INT  — FK a MUNICIPIO (donde se reportó)
+    id_area                   INT  — FK a AREA_GEOGRAFICA
+    año_hecho                 INT
+    id_mes_hecho              INT  — FK a CAT_MES
+    dia_hecho                 INT
+    año_emision               INT
+    id_mes_emision            INT  — FK a CAT_MES
+    dia_emision               INT
+    quien_reporta             INT
+    recurrio_denuncia         BOOLEAN
+    id_institucion_denuncia   INT  — FK a CAT_INSTITUCION_DENUNCIA
+    id_institucion_hecho      INT  — FK a CAT_INSTITUCION_DENUNCIA
+    id_organismo_jur          INT  — FK a CAT_ORGANISMO_JURISDICCIONAL
+    conducente                VARCHAR(50)
+    id_ley_aplicable          INT  — FK a CAT_LEY_APLICABLE
+    medidas_seguridad         BOOLEAN
+    id_tipo_medida            INT  — FK a TIPO_MEDIDA_VIF
+    id_organismo_rem          INT  — FK a CAT_ORGANISMO_REMITE
+
+  HECHO_VIF_TIPO_AGRESION (puente N:M):
+    id_hecho_vif_tipo_agr  INT
+    id_hecho_vif           INT  — FK a HECHO_VIF
+    id_tipo_agresion       INT  — FK a TIPO_AGRESION_VIF
+
+  ARTICULO_VIF:
+    id_articulo_vif  INT
+    id_hecho_vif     INT  — FK a HECHO_VIF
+    id_tipo_articulo INT  — FK a CAT_TIPO_ARTICULO
+    orden            INT  — 1 a 4
+    articulo         VARCHAR(50)
+
+  VICTIMA_VIF:
+    id_victima_vif    INT
+    id_hecho_vif      INT  — FK a HECHO_VIF
+    id_persona        INT  — FK a PERSONA
+    id_grupo_etario   INT  — FK a GRUPO_ETARIO
+    alfabeta          BOOLEAN
+    trabaja           BOOLEAN
+    tiene_discapacidad BOOLEAN
+    id_relacion_agr   INT  — FK a CAT_RELACION_AGRESOR
+
+  VICTIMA_VIF_TRABAJO:
+    id_victima_vif_trabajo  INT
+    id_victima_vif          INT  — FK a VICTIMA_VIF
+    descripcion_trabajo     VARCHAR(100)
+
+  HIJO_VICTIMA_VIF:
+    id_hijo_victima  INT
+    id_victima_vif   INT  — FK a VICTIMA_VIF
+    id_sexo          INT  — FK a SEXO
+    cantidad         INT
+
+  OTRAS_VICTIMAS_VIF:
+    id_otras_victimas   INT
+    id_victima_vif      INT  — FK a VICTIMA_VIF
+    otras_victimas      BOOLEAN
+    otras_vict_hombres  INT
+    otras_vict_mujeres  INT
+    otras_vict_n_os     INT
+    otras_vict_n_as     INT
+
+  VICTIMA_VIF_DISCAPACIDAD:
+    id_victima_vif_discap  INT
+    id_victima_vif         INT  — FK a VICTIMA_VIF
+    id_tipo_discap         INT  — FK a CAT_TIPO_DISCAPACIDAD
+
+  AGRESOR_VIF:
+    id_agresor_vif       INT
+    id_hecho_vif         INT  — FK a HECHO_VIF
+    id_persona           INT  — FK a PERSONA
+    id_grupo_etario      INT  — FK a GRUPO_ETARIO
+    alfabeta             BOOLEAN
+    trabaja              BOOLEAN
+    dedica               VARCHAR(100)
+    agresores_otros_total INT
+    otros_agr_hombres    INT
+    otros_agr_mujeres    INT
+    otros_agr_n_os       INT
+    otros_agr_n_as       INT
+
+  OTRAS_AGRESORES_VIF:
+    id_otro_agresor_vif  INT
+    id_agresor_vif       INT  — FK a AGRESOR_VIF
+    id_sexo              INT  — FK a SEXO (NULL si no aplica)
+    no_aplica            BOOLEAN
+    cantidad             INT
+
+VICTIMA_VIF y AGRESOR_VIF están separadas de HECHO_VIF porque sus
+atributos son propios de la persona involucrada, no del hecho en sí.
+
+------------------------------------------------------------------------
+3.5 FALTAS JUDICIALES
+------------------------------------------------------------------------
+Fuente: Base de Faltas Judiciales — 17,908 registros, 23 columnas.
+Una falta judicial es una infracción leve (a diferencia de un delito grave).
+
+  TIPO_FALTA_JUDICIAL:
+    id_tipo_falta  INT
+    nombre         VARCHAR(100)  — Contra las personas, La propiedad,
+                                    Buenas costumbres, Orden público
+
+  FALTA_JUDICIAL:
+    id_falta                 INT
+    id_tipo_falta            INT  — FK a TIPO_FALTA_JUDICIAL
+    id_persona               INT  — FK a PERSONA
+    id_municipio             INT  — FK a MUNICIPIO (lugar del registro)
+    año                      INT
+    id_mes                   INT  — FK a CAT_MES
+    bajo_efectos_alcohol     BOOLEAN
+    id_municipio_nacimiento  INT  — FK a MUNICIPIO (lugar de nacimiento)
+
+------------------------------------------------------------------------
+3.6 DISCRIMINACIÓN (VIOLENCIA ESTRUCTURAL)
+------------------------------------------------------------------------
+Fuente: Casos de discriminación 2016-2023. En total son ~113 registros
+reales, por lo que este subsistema se complementa con datos generados
+con Faker para hacer el sistema más realista.
+
+Los archivos originales tienen encabezados no estándar y requieren
+limpieza antes de cargarse.
+
+  TIPO_DISCRIMINACION:
+    id_tipo_disc  INT
+    nombre        VARCHAR(100)  — Étnica, Racial, Étnica/Género,
+                                   Étnica laboral
+
+  CAT_PUEBLO:
+    id_pueblo  INT
+    nombre     VARCHAR(50)  — Maya, Xinka, Garífuna
+
+  CAT_COMUNIDAD_LINGUISTICA:
+    id_comunidad_ling  INT
+    id_pueblo          INT  — FK a CAT_PUEBLO
+    nombre             VARCHAR(50)  — K'iche', Q'eqchi', Kaqchikel...
+
+  DENUNCIA_DISCRIMINACION:
+    id_denuncia_disc   INT
+    id_persona         INT  — FK a PERSONA
+    id_municipio       INT  — FK a MUNICIPIO
+    id_tipo_disc       INT  — FK a TIPO_DISCRIMINACION
+    año                INT
+    fue_procesada      BOOLEAN  — canalizado al MP: sí/no
+    id_comunidad_ling  INT  — FK a CAT_COMUNIDAD_LINGUISTICA
+
+------------------------------------------------------------------------
+3.7 VIOLENCIA CONTRA LA NIÑEZ
+------------------------------------------------------------------------
+Fuentes:
+  a) Quejas MINEDUC 2023 — agresiones en entorno escolar
+  b) ENTI 2022 (México) como referencia estructural
+  c) PDH / INE Guatemala
+
+El conjunto ENTI trae sus propios catálogos en archivos CSV. Varios de
+ellos se mapean directamente a tablas base ya existentes (SEXO, GRUPO_ETARIO,
+NIVEL_ESCOLARIDAD, OCUPACION, etc.). Los que no tienen equivalente se
+crean como catálogos propios:
+
+  Mapeo a tablas base existentes:
+    SEXO              ← sex.csv
+    ESTADO_CIVIL      ← est.csv
+    GRUPO_ETARIO      ← eda.csv, eda1.csv, eda5c.csv, eda7c.csv, eda12c.csv, eda19c.csv
+    NIVEL_ESCOLARIDAD ← anios_esc.csv, n_esc.csv
+    OCUPACION         ← c_ocu.csv, c_ocu11c.csv, pos_ocu.csv, pos_ocu2.csv, g_ocu.csv
+    CONDICION_LABORAL ← e_con.csv, d_ant_lab.csv, t_tra.csv, tip_con.csv
+    AREA_GEOGRAFICA   ← ambito1.csv, ambito2.csv, zona.csv
+
+  Catálogos nuevos del ENTI:
+    CAT_ENTI_SECTOR_ECONOMICO — scian.csv, rama.csv, rama_est1.csv, rama_est2.csv
+    CAT_ENTI_TIPO_UNIDAD      — t_uni.csv
+    CAT_ENTI_JORNADA          — jor_ina.csv, dur_jor.csv, hrsocup.csv
+    CAT_ENTI_HOGAR            — hog_c5a17.csv, n_hij.csv, hij5c.csv, n_hog.csv
+    CAT_ENTI_ASEGURAMIENTO    — medica5c.csv, seg_soc.csv, imssissste.csv
+    CAT_ENTI_AMBITO           — domestico.csv, ambito1.csv, ambito2.csv
+    CAT_ENTI_RIESGO_TRABAJO   — o_pel1.csv hasta o_pel9.csv
+    CAT_ENTI_APOYO            — c_apo.csv, t_apo1.csv
+    CAT_ENTI_CONDICION        — e_con.csv, d_ant_lab.csv, dispo.csv, nodispo.csv
+    CAT_ENTI_CLASE_OCUP       — clase1.csv, clase2.csv, clase3.csv, g_ocu.csv
+
+  Todos tienen la misma estructura:
+    id_xxx       INT
+    codigo       VARCHAR(10)
+    descripcion  VARCHAR(200)
+
+  TIPO_AGRESION_NIÑEZ:
+    id_tipo_agresion_n  INT
+    nombre              VARCHAR(100)  — Embarazo menor 14 años,
+                                        Violencia física y psicológica,
+                                        Acoso escolar (bullying),
+                                        Acoso y hostigamiento sexual,
+                                        Racismo y discriminación,
+                                        Violencia sexual, Abuso de autoridad
+
+  CAT_FUENTE_NIÑEZ:
+    id_fuente_niñez  INT
+    nombre           VARCHAR(50)  — MINEDUC, PDH, PNC
+
+  CASO_VIOLENCIA_NIÑEZ:
+    id_caso_niñez       INT
+    id_tipo_agresion_n  INT  — FK a TIPO_AGRESION_NIÑEZ
+    id_persona_victima  INT  — FK a PERSONA
+    id_municipio        INT  — FK a MUNICIPIO
+    año                 INT
+    id_fuente_niñez     INT  — FK a CAT_FUENTE_NIÑEZ
+    escolarizada        BOOLEAN
+
+------------------------------------------------------------------------
+3.8 TRABAJO INFANTIL
+------------------------------------------------------------------------
+Fuente: Estructura ENTI 2022 (México) adaptada a Guatemala + PDF del INE GT.
+Los datos individuales se generan con Faker siguiendo la estructura ENTI.
+
+  CAT_RAMA_ECONOMICA:
+    id_rama_econ  INT
+    nombre        VARCHAR(50)  — Primario, Secundario, Terciario
+
+  SECTOR_TRABAJO_INFANTIL:
+    id_sector           INT
+    id_sector_economico INT  — FK a CAT_ENTI_SECTOR_ECONOMICO
+    id_rama_economica   INT  — FK a CAT_RAMA_ECONOMICA
+
+  CAT_TIPO_PAGO:      Efectivo, Especie, Mixto
+  CAT_TIPO_CONTRATO:  tipos de contrato laboral
+  CAT_RAZON_TRABAJA:  Pobreza, Ayuda familiar, Otro
+
+  CASO_TRABAJO_INFANTIL:
+    id_caso_ti             INT
+    id_persona             INT  — FK a PERSONA
+    id_municipio           INT  — FK a MUNICIPIO
+    id_sector              INT  — FK a SECTOR_TRABAJO_INFANTIL
+    año                    INT
+    horas_semana           INT
+    recibe_pago            BOOLEAN
+    asiste_escuela         BOOLEAN
+    trabajo_peligroso      BOOLEAN
+    id_tipo_contrato       INT  — FK a CAT_TIPO_CONTRATO
+    acceso_seguro_social   BOOLEAN
+    id_tipo_unidad_econ    INT  — FK a CAT_ENTI_TIPO_UNIDAD
+
+Las siguientes tablas puente permiten que un caso tenga múltiples
+valores para cada dimensión del ENTI, sin violar la 1FN:
+
+  CASO_TRABAJO_INFANTIL_TIPO_PAGO       — N:M con CAT_TIPO_PAGO
+  CASO_TRABAJO_INFANTIL_RAZON           — N:M con CAT_RAZON_TRABAJA
+  CASO_TRABAJO_INFANTIL_JORNADA         — N:M con CAT_ENTI_JORNADA
+  CASO_TRABAJO_INFANTIL_HOGAR           — N:M con CAT_ENTI_HOGAR
+  CASO_TRABAJO_INFANTIL_ASEGURAMIENTO   — N:M con CAT_ENTI_ASEGURAMIENTO
+  CASO_TRABAJO_INFANTIL_AMBITO          — N:M con CAT_ENTI_AMBITO
+  CASO_TRABAJO_INFANTIL_RIESGO          — N:M con CAT_ENTI_RIESGO_TRABAJO
+  CASO_TRABAJO_INFANTIL_APOYO           — N:M con CAT_ENTI_APOYO
+  CASO_TRABAJO_INFANTIL_CONDICION       — N:M con CAT_ENTI_CONDICION
+  CASO_TRABAJO_INFANTIL_CLASE_OCUP      — N:M con CAT_ENTI_CLASE_OCUP
+
+------------------------------------------------------------------------
+3.9 EMBARAZOS
+------------------------------------------------------------------------
+
+Resultados del scraping:
+  380 ubicaciones (24 departamentos + 356 municipios)
+  14,380 registros por periodo × ubicación × edad × indicador
+  1,800 totales por periodo × ubicación
+  110 fuentes (una por tabla/página scrapeada)
+  9 periodos: 2018 al 2026
+  10 edades exactas: de 10 a 19 años
+
+Las ubicaciones de OSAR pueden tener variantes ortográficas respecto
+a los nombres oficiales del INE. El mapeo se hace por catálogo con
+limpieza de nombres en el ETL.
+
+  EMBARAZO_TIPO_UBICACION:
+    id_tipo_ubicacion  INT
+    nombre             VARCHAR(20)  — departamento, municipio
+
+  EMBARAZO_UBICACION:
+    id_ubicacion        INT
+    nombre              VARCHAR(100)
+    id_tipo_ubicacion   INT  — FK a EMBARAZO_TIPO_UBICACION
+    id_municipio        INT  — FK a MUNICIPIO (NULL si es departamento)
+    id_departamento     INT  — FK a DEPARTAMENTO (NULL si es municipio)
+
+  Los dos FK a MUNICIPIO y DEPARTAMENTO son la corrección clave respecto
+  al modelo original: evitan hacer JOIN por nombre de texto, que es mala
+  práctica y potencialmente inconsistente.
+
+  EMBARAZO_FUENTE:
+    id_fuente    INT
+    slug         VARCHAR(200)  — identificador único por tabla scrapeada
+    url          VARCHAR(500)
+    descripcion  VARCHAR(50)
+
+  EMBARAZO_PERIODO:
+    id_periodo  INT
+    anio        INT  — 2018 a 2026
+
+  EMBARAZO_RANGO_EDAD:
+    id_rango_edad  INT
+    descripcion    VARCHAR(30)  — 10-14 años, 15-17 años, 18-19 años
+    edad_minima    INT
+    edad_maxima    INT
+
+  EMBARAZO_EDAD:
+    id_edad        INT
+    edad           INT  — 10 a 19
+    id_rango_edad  INT  — FK a EMBARAZO_RANGO_EDAD
+
+  Se agrega EMBARAZO_RANGO_EDAD para soportar las consultas por rango
+  (consulta 6 del proyecto: embarazos adolescentes por región) sin tener
+  que hacer BETWEEN en cada query. Los rangos de OSAR (10-14, 15-17, 18-19)
+  difieren de los de GRUPO_ETARIO del MSPAS, por eso se mantienen separados.
+
+  EMBARAZO_INDICADOR:
+    id_indicador  INT
+    nombre        VARCHAR(100)  — registros_embarazos_nacimientos
+
+  EMBARAZO_REGISTRO:
+    id_registro   INT
+    id_periodo    INT  — FK a EMBARAZO_PERIODO
+    id_ubicacion  INT  — FK a EMBARAZO_UBICACION
+    id_fuente     INT  — FK a EMBARAZO_FUENTE
+    id_edad       INT  — FK a EMBARAZO_EDAD
+    id_indicador  INT  — FK a EMBARAZO_INDICADOR
+    cantidad      INT
+
+  El campo es_adolescente que tenía la versión anterior se eliminó:
+  era un campo derivado de EMBARAZO_EDAD.edad < 19, lo que viola la 3FN.
+  Ahora se calcula en la consulta.
+
+  EMBARAZO_TOTAL:
+    id_total      INT
+    id_periodo    INT  — FK a EMBARAZO_PERIODO
+    id_ubicacion  INT  — FK a EMBARAZO_UBICACION
+    id_fuente     INT  — FK a EMBARAZO_FUENTE
+    id_indicador  INT  — FK a EMBARAZO_INDICADOR
+    total         INT
+
+
+
+
+4. EJE 2 — SALUD PÚBLICA
+
+
+El eje de salud es más uniforme que el de violencia: los cuatro
+subsistemas comparten la misma lógica (municipio + grupo etario + sexo +
+año + tipo + cantidad). Por eso se introdujo CASO_SALUD_BASE como tabla
+padre que centraliza esos campos comunes.
+
+------------------------------------------------------------------------
+4.1 PERÍODO DE SALUD
+------------------------------------------------------------------------
+En los subsistemas de violencia el año aparece como INT suelto o como
+FK a CAT_MES. Para salud se creó un período propio que además registra
+la fuente de los datos.
+
+  SALUD_PERIODO:
+    id_periodo  INT
+    anio        INT  — único
+    fuente      VARCHAR(100)  — MSPAS, INACIF, etc.
+
+------------------------------------------------------------------------
+4.2 CASO_SALUD_BASE — LA TABLA PADRE DE SALUD
+------------------------------------------------------------------------
+Todos los casos de salud (desnutrición, enfermedades crónicas, vectores
+y morbilidad) comparten: municipio, grupo etario, sexo y período. En vez
+de repetir esos cuatro campos en cada tabla, se centralizan aquí.
+
+  CASO_SALUD_BASE:
+    id_caso_salud    INT
+    id_municipio     INT  — FK a MUNICIPIO
+    id_grupo_etario  INT  — FK a GRUPO_ETARIO
+    id_sexo          INT  — FK a SEXO
+    id_periodo       INT  — FK a SALUD_PERIODO
+
+Cada subsistema de salud agrega sus campos específicos en una tabla hija:
+
+------------------------------------------------------------------------
+4.3 DESNUTRICIÓN
+------------------------------------------------------------------------
+Fuente: 2 archivos CSV (desnutrición aguda + retardo en desarrollo),
+19,671 registros cada uno con el mismo formato: municipio, grupo etario,
+sexo, año, cantidad.
+
+  TIPO_DESNUTRICION:
+    id_tipo_desnutricion  INT
+    nombre                VARCHAR(50)  — Desnutrición Aguda, Retardo en el Desarrollo
+
+  CASO_DESNUTRICION:
+    id_caso_desnutricion  INT
+    id_caso_salud         INT  — FK a CASO_SALUD_BASE
+    id_tipo_desnutricion  INT  — FK a TIPO_DESNUTRICION
+    cantidad              INT
+
+------------------------------------------------------------------------
+4.4 ENFERMEDADES CRÓNICAS
+------------------------------------------------------------------------
+Fuente: 5 archivos CSV (un año por archivo), 45,437 registros el analizado.
+El código CIE-10 y su descripción se centralizan en DIAGNOSTICO_CIE10,
+que también usa morbilidad — por eso se mueve a nivel de tablas base.
+
+  DIAGNOSTICO_CIE10:
+    id_diagnostico  INT
+    codigo_cie10    VARCHAR(20)   — J:45, I:10, E:11...
+    nombre          VARCHAR(300)  — Asma, Hipertensión, Diabetes...
+
+  CASO_ENFERMEDAD_CRONICA:
+    id_caso_cronica  INT
+    id_caso_salud    INT  — FK a CASO_SALUD_BASE
+    id_diagnostico   INT  — FK a DIAGNOSTICO_CIE10
+    casos            INT
+
+------------------------------------------------------------------------
+4.5 ENFERMEDADES TRANSMITIDAS POR VECTORES
+------------------------------------------------------------------------
+Fuente: 6 archivos CSV (Dengue, Dengue Grave, Malaria, Chagas, Zika,
+Chikungunya), aproximadamente 7,060 registros cada uno.
+
+Se agrega CATEGORIA_VECTOR para clasificar las enfermedades: Dengue,
+Zika y Chikungunya son arbovirus; Malaria y Chagas son parasitarias.
+
+  CATEGORIA_VECTOR:
+    id_categoria  INT
+    nombre        VARCHAR(50)  — Arbovirus, Parasitaria, Otro
+
+  TIPO_ENFERMEDAD_VECTOR:
+    id_tipo_vector  INT
+    nombre          VARCHAR(50)  — Dengue, Dengue Grave, Malaria...
+    id_categoria    INT  — FK a CATEGORIA_VECTOR
+
+  CASO_ENFERMEDAD_VECTOR:
+    id_caso_vector  INT
+    id_caso_salud   INT  — FK a CASO_SALUD_BASE
+    id_tipo_vector  INT  — FK a TIPO_ENFERMEDAD_VECTOR
+    casos           INT
+
+------------------------------------------------------------------------
+4.6 MORBILIDAD MATERNA E INFANTIL (NEONATAL)
+------------------------------------------------------------------------
+Fuentes:
+  Morbilidad Materna   — sin columna de sexo (implícitamente femenino)
+  Morbilidad Neonatal  — 181,908 registros, con CIE-10 y sexo
+
+Se unifica materna y neonatal en una sola tabla usando id_tipo_morbilidad.
+Para registros maternos, CASO_SALUD_BASE.id_sexo puede ser NULL.
+
+  TIPO_MORBILIDAD:
+    id_tipo_morbilidad  INT
+    nombre              VARCHAR(30)  — Materna, Neonatal
+
+  CASO_MORBILIDAD:
+    id_caso_morbilidad  INT
+    id_caso_salud       INT  — FK a CASO_SALUD_BASE
+    id_tipo_morbilidad  INT  — FK a TIPO_MORBILIDAD
+    casos               INT
+
+  CASO_MORBILIDAD_DIAGNOSTICO (puente N:M):
+    id_caso_morb_diag  INT
+    id_caso_morbilidad INT  — FK a CASO_MORBILIDAD
+    id_diagnostico     INT  — FK a DIAGNOSTICO_CIE10
+
+Se usa tabla puente porque un caso de morbilidad puede asociarse a
+múltiples diagnósticos CIE-10.
+
+------------------------------------------------------------------------
+4.7 ENLACE SALUD <-> PERSONA
+------------------------------------------------------------------------
+Los datos de salud son estadísticos (no tienen nombre de persona), pero
+para escalabilidad futura se modela un puente genérico:
+
+  CASO_SALUD_PERSONA:
+    id_caso_salud_persona  INT
+    id_caso_salud          INT  — FK a CASO_SALUD_BASE
+    id_persona             INT  — FK a PERSONA
+
+Esto evita crear múltiples tablas puente por subsistema si en el futuro
+se dispone de datos individuales.
+
+
+5. RELACIONES CRUZADAS ENTRE EJES
+
+
+Las consultas más complejas del proyecto cruzan violencia con salud.
+Ninguna de esas relaciones requiere tablas nuevas — se resuelven con
+JOIN sobre id_municipio y el campo id_periodo o año.
+
+  Desnutrición <-> VIF por departamento
+    CASO_DESNUTRICION -> CASO_SALUD_BASE.id_municipio
+       HECHO_VIF.id_municipio_hecho -> MUNICIPIO -> DEPARTAMENTO
+    Consulta 24
+
+  Hechos delictivos <-> Enfermedades por vectores por municipio
+    HECHO_DELICTIVO.id_municipio  CASO_SALUD_BASE.id_municipio
+    Consulta 28
+
+  Violencia estructural <-> Áreas urbanas/rurales
+    DENUNCIA_DISCRIMINACION.id_municipio
+    -> MUNICIPIO.id_area -> AREA_GEOGRAFICA
+    Consulta 29
+
+  Trabajo infantil <-> Escolaridad
+    CASO_TRABAJO_INFANTIL.id_persona
+    -> PERSONA.id_escolaridad -> NIVEL_ESCOLARIDAD
+    Consultas 16 y 17
+
+  Faltas judiciales <-> Nivel de escolaridad
+    FALTA_JUDICIAL.id_persona
+    -> PERSONA.id_escolaridad -> NIVEL_ESCOLARIDAD
+    Consulta 9
+
+  Embarazos adolescentes <-> Región
+    EMBARAZO_REGISTRO -> EMBARAZO_EDAD -> EMBARAZO_RANGO_EDAD
+    -> EMBARAZO_UBICACION -> MUNICIPIO -> DEPARTAMENTO
+    Consulta 6
+
+
+RESUMEN DE TABLAS
+
+
+Tablas base compartidas por ambos ejes (12 + catálogos de apoyo):
+  DEPARTAMENTO, MUNICIPIO, AREA_GEOGRAFICA, CAT_MES, GRUPO_ETARIO,
+  SEXO, NIVEL_ESCOLARIDAD, ESTADO_CIVIL, ETNIA, NACIONALIDAD,
+  OCUPACION, SECTOR_ECONOMICO, CONDICION_LABORAL, PERSONA,
+  DIAGNOSTICO_CIE10, CAT_PUEBLO, CAT_COMUNIDAD_LINGUISTICA
+
+Eje Violencia (55 tablas):
+  GRUPO_DELITO, TIPO_HECHO_DELICTIVO,
+  CAT_DIA_SEMANA, CAT_GRUPO_HORA, CAT_CLASIF_EVALUACION,
+  CAT_INVOLUCRAMIENTO, CAT_TIPO_FALLO, CAT_TIPO_LEY,
+  CAT_TITULO_LEY, CAT_CAPITULO_LEY, CAT_CAUSA_MUERTE, CAT_ROL_PERSONA,
+  HECHO_DELICTIVO, HECHO_DELICTIVO_TIPO_HECHO, VICTIMA_HECHO, DETENIDO_PNC,
+  TIPO_SERVICIO_INACIF, SERVICIO_INACIF,
+  TIPO_DELITO_SENTENCIA, CAT_DESPACHO, CAT_FUENTE_SENTENCIA,
+  SENTENCIA, DETALLE_SENTENCIA, SENTENCIA_PERSONA,
+  TIPO_DELITO_VCM, CAT_ESTADO_CASO_VCM, CAT_TIPO_ATENCION,
+  CAT_ORIENTACION_SEXUAL, CAT_INDICADOR_VCM, CAT_TIPO_EVALUACION_VCM,
+  HECHO_VCM, HECHO_VCM_TIPO_DELITO, ATENCION_IDVC, SENTENCIA_VCM,
+  SENTENCIA_VCM_MP_RESUMEN, SENTENCIA_VCM_OJ_RESUMEN,
+  MEDIDA_SEGURIDAD_VCM, EVALUACION_INACIF_VCM,
+  TIPO_AGRESION_VIF, TIPO_MEDIDA_VIF, CAT_TIPO_ARTICULO,
+  CAT_INSTITUCION_DENUNCIA, CAT_ORGANISMO_JURISDICCIONAL,
+  CAT_LEY_APLICABLE, CAT_ORGANISMO_REMITE, CAT_TIPO_DISCAPACIDAD,
+  CAT_RELACION_AGRESOR, HECHO_VIF, HECHO_VIF_TIPO_AGRESION, ARTICULO_VIF,
+  VICTIMA_VIF, VICTIMA_VIF_TRABAJO, HIJO_VICTIMA_VIF,
+  OTRAS_VICTIMAS_VIF, VICTIMA_VIF_DISCAPACIDAD,
+  AGRESOR_VIF, OTRAS_AGRESORES_VIF,
+  TIPO_FALTA_JUDICIAL, FALTA_JUDICIAL,
+  TIPO_DISCRIMINACION, DENUNCIA_DISCRIMINACION,
+  CAT_ENTI_SECTOR_ECONOMICO, CAT_ENTI_TIPO_UNIDAD, CAT_ENTI_JORNADA,
+  CAT_ENTI_HOGAR, CAT_ENTI_ASEGURAMIENTO, CAT_ENTI_AMBITO,
+  CAT_ENTI_RIESGO_TRABAJO, CAT_ENTI_APOYO, CAT_ENTI_CONDICION,
+  CAT_ENTI_CLASE_OCUP,
+  TIPO_AGRESION_NIÑEZ, CAT_FUENTE_NIÑEZ, CASO_VIOLENCIA_NIÑEZ,
+  CAT_RAMA_ECONOMICA, SECTOR_TRABAJO_INFANTIL,
+  CAT_TIPO_PAGO, CAT_TIPO_CONTRATO, CAT_RAZON_TRABAJA,
+  CASO_TRABAJO_INFANTIL,
+  CASO_TRABAJO_INFANTIL_TIPO_PAGO, CASO_TRABAJO_INFANTIL_RAZON,
+  CASO_TRABAJO_INFANTIL_JORNADA, CASO_TRABAJO_INFANTIL_HOGAR,
+  CASO_TRABAJO_INFANTIL_ASEGURAMIENTO, CASO_TRABAJO_INFANTIL_AMBITO,
+  CASO_TRABAJO_INFANTIL_RIESGO, CASO_TRABAJO_INFANTIL_APOYO,
+  CASO_TRABAJO_INFANTIL_CONDICION, CASO_TRABAJO_INFANTIL_CLASE_OCUP,
+  EMBARAZO_TIPO_UBICACION, EMBARAZO_UBICACION, EMBARAZO_FUENTE,
+  EMBARAZO_PERIODO, EMBARAZO_RANGO_EDAD, EMBARAZO_EDAD,
+  EMBARAZO_INDICADOR, EMBARAZO_REGISTRO, EMBARAZO_TOTAL
+
+Eje Salud (13 tablas):
+  SALUD_PERIODO, CASO_SALUD_BASE,
+  TIPO_DESNUTRICION, CASO_DESNUTRICION,
+  CASO_ENFERMEDAD_CRONICA,
+  CATEGORIA_VECTOR, TIPO_ENFERMEDAD_VECTOR, CASO_ENFERMEDAD_VECTOR,
+  TIPO_MORBILIDAD, CASO_MORBILIDAD, CASO_MORBILIDAD_DIAGNOSTICO,
+  CASO_SALUD_PERSONA
+
+Total del sistema: ~95 tablas (más catálogos base)
+
+
+CARDINALIDADES
+
+
+La mayoría de relaciones en este sistema son 1:N — un catálogo clasifica
+muchos registros. A continuación se listan las relaciones menos obvias:
+
+Relaciones N:M implementadas con tabla puente:
+  HECHO_DELICTIVO <-> TIPO_HECHO_DELICTIVO -> HECHO_DELICTIVO_TIPO_HECHO
+  HECHO_VCM <-> TIPO_DELITO_VCM           -> HECHO_VCM_TIPO_DELITO
+  HECHO_VIF <-> TIPO_AGRESION_VIF         -> HECHO_VIF_TIPO_AGRESION
+  HECHO_DELICTIVO <-> PERSONA             -> VICTIMA_HECHO
+  HECHO_VIF <-> PERSONA (víctima)         -> VICTIMA_VIF
+  HECHO_VIF <-> PERSONA (agresor)         -> AGRESOR_VIF
+  SENTENCIA <-> PERSONA                   -> SENTENCIA_PERSONA
+  CASO_MORBILIDAD <-> DIAGNOSTICO_CIE10   -> CASO_MORBILIDAD_DIAGNOSTICO
+  CASO_SALUD_BASE <-> PERSONA             -> CASO_SALUD_PERSONA
+  CASO_TRABAJO_INFANTIL <-> múltiples catálogos ENTI -> tablas _JORNADA, _HOGAR, etc.
+
+Relaciones 1:1 opcionales:
+  SENTENCIA -> DETALLE_SENTENCIA
+    No todas las sentencias del Excel tienen entrada en el observatorio.
+  EMBARAZO_UBICACION -> MUNICIPIO
+    Solo cuando la ubicación OSAR es de nivel municipal.
+  EMBARAZO_UBICACION -> DEPARTAMENTO
+    Solo cuando la ubicación OSAR es de nivel departamental.
+
+Jerarquías importantes:
+  DEPARTAMENTO -> MUNICIPIO (1:N)
+  CAT_TIPO_LEY -> CAT_TITULO_LEY -> CAT_CAPITULO_LEY (jerarquía legal)
+  CAT_PUEBLO -> CAT_COMUNIDAD_LINGUISTICA (jerarquía étnica)
+  EMBARAZO_RANGO_EDAD -> EMBARAZO_EDAD (un rango agrupa varias edades exactas)
+  CATEGORIA_VECTOR -> TIPO_ENFERMEDAD_VECTOR
+
+
+11. TABLAS PUENTE VS TABLAS DE ENTIDAD
+
+
+Tablas puente (implementan relaciones N:M o vínculos entre entidades):
+  VICTIMA_HECHO, HECHO_DELICTIVO_TIPO_HECHO, HECHO_VCM_TIPO_DELITO,
+  HECHO_VIF_TIPO_AGRESION, VICTIMA_VIF, AGRESOR_VIF, SENTENCIA_PERSONA,
+  CASO_MORBILIDAD_DIAGNOSTICO, CASO_SALUD_PERSONA,
+  CASO_TRABAJO_INFANTIL_TIPO_PAGO, CASO_TRABAJO_INFANTIL_RAZON,
+  CASO_TRABAJO_INFANTIL_JORNADA, CASO_TRABAJO_INFANTIL_HOGAR,
+  CASO_TRABAJO_INFANTIL_ASEGURAMIENTO, CASO_TRABAJO_INFANTIL_AMBITO,
+  CASO_TRABAJO_INFANTIL_RIESGO, CASO_TRABAJO_INFANTIL_APOYO,
+  CASO_TRABAJO_INFANTIL_CONDICION, CASO_TRABAJO_INFANTIL_CLASE_OCUP
+
+Tablas de entidad (catálogos y tablas de hechos/casos):
+  Todas las demás — desde DEPARTAMENTO hasta EMBARAZO_TOTAL.
+
