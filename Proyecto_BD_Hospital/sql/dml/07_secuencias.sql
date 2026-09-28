@@ -1,30 +1,16 @@
--- ============================================================
--- 07_secuencias.sql : resincroniza las secuencias de identidad
--- tras inserciones con IDs explícitos (OVERRIDING SYSTEM VALUE)
--- ============================================================
+-- Proyecto 1 - BD Hospitales de Occidente
+-- 07_secuencias.sql : ajusta las secuencias despues de cargar los datos
 
-SET search_path TO public;
-
--- Recalcula cada secuencia al máximo id existente + 1, para que las
--- futuras inserciones no colisionen con las filas insertadas a mano.
-DO $sec$
-DECLARE
-  r RECORD;
-BEGIN
-  FOR r IN
-    SELECT table_name, column_name
-      FROM information_schema.columns
-     WHERE table_schema = 'public'
-       AND identity_generation IS NOT NULL
-  LOOP
-    EXECUTE format(
-      'SELECT setval(pg_get_serial_sequence(%L, %L),
-                     (SELECT COALESCE(MAX(%I), 0) + 1 FROM %I.%I), false)',
-      'public.' || r.table_name,
-      r.column_name,
-      r.column_name,
-      'public',
-      r.table_name
-    );
-  END LOOP;
-END $sec$;
+-- como cargamos los registros con su id fijo, dejamos la secuencia en el
+-- ultimo id usado para que los siguientes registros no se repitan
+select setval('hospital_id_hospital_seq', (select max(id_hospital) from hospital));
+select setval('medico_id_medico_seq', (select max(id_medico) from medico));
+select setval('enfermero_id_enfermero_seq', (select max(id_enfermero) from enfermero));
+select setval('paciente_id_paciente_seq', (select max(id_paciente) from paciente));
+select setval('encargado_id_encargado_seq', (select max(id_encargado) from encargado));
+select setval('cita_id_cita_seq', (select max(id_cita) from cita));
+select setval('consulta_id_consulta_seq', (select max(id_consulta) from consulta));
+select setval('factura_id_factura_seq', (select max(id_factura) from factura));
+select setval('pago_id_pago_seq', (select max(id_pago) from pago));
+select setval('ingreso_id_ingreso_seq', (select max(id_ingreso) from ingreso));
+select setval('cirugia_id_cirugia_seq', (select max(id_cirugia) from cirugia));

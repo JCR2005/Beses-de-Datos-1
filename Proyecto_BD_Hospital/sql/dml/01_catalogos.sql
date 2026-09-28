@@ -5,13 +5,13 @@
 SET search_path TO public;
 
 -- Hospitales de la cadena
-INSERT INTO hospital (id_hospital, nombre, informacion_especifica, direccion) OVERRIDING SYSTEM VALUE VALUES
+INSERT INTO hospital (id_hospital, nombre, informacion_especifica, direccion) VALUES
 (1, 'Hospital General de Occidente', 'Hospital general de tercer nivel; 4 quirófanos y 24 camillas de hospitalización.', '15 Av. 6-45, zona 3, Quetzaltenango'),
 (2, 'Hospital Regional de San Marcos', 'Hospital de referencia regional para el departamento de San Marcos.', '7a. calle 4-10, zona 2, San Marcos'),
 (3, 'Hospital Infantil de Retalhuleu', 'Hospital especializado en atención pediátrica.', 'Boulevard El Malecón, zona 1, Retalhuleu');
 
 -- Unidades médicas de cada hospital (incluye "Otro" para traslados externos)
-INSERT INTO unidad_medica (id_unidad, hospital_id, nombre, costo_dia_hospitalizacion) OVERRIDING SYSTEM VALUE VALUES
+INSERT INTO unidad_medica (id_unidad, hospital_id, nombre, costo_dia_hospitalizacion) VALUES
 (11, 1, 'Consulta Externa', NULL), (12, 1, 'Emergencias', NULL), (13, 1, 'Cirugia', NULL),
 (14, 1, 'Hospitalizacion', 600.00), (15, 1, 'Otro', NULL),
 (21, 2, 'Consulta Externa', NULL), (22, 2, 'Emergencias', NULL), (23, 2, 'Cirugia', NULL),
@@ -20,7 +20,7 @@ INSERT INTO unidad_medica (id_unidad, hospital_id, nombre, costo_dia_hospitaliza
 (34, 3, 'Hospitalizacion', 520.00), (35, 3, 'Otro', NULL);
 
 -- Servicios de atención (tipo de servicio) por unidad
-INSERT INTO servicio_atencion (id_servicio, unidad_id, nombre, costo) OVERRIDING SYSTEM VALUE VALUES
+INSERT INTO servicio_atencion (id_servicio, unidad_id, nombre, costo) VALUES
 -- Emergencias - Hospital 1
 (1, 12, 'Aislamiento y control de vía aérea y ventilación', 1200.00),
 (2, 12, 'Control cardiocirculatorio', 1400.00),
@@ -45,7 +45,7 @@ INSERT INTO servicio_atencion (id_servicio, unidad_id, nombre, costo) OVERRIDING
 (19, 13, 'Cirugía Oncológica', 12000.00);
 
 -- Especialidades (consulta externa + quirúrgicas)
-INSERT INTO especialidad (id_especialidad, nombre) OVERRIDING SYSTEM VALUE VALUES
+INSERT INTO especialidad (id_especialidad, nombre) VALUES
 (301, 'Cardiología'), (302, 'Dermatología'), (303, 'Fisioterapia'),
 (304, 'Ginecología Oncológica'), (305, 'Hematología'), (306, 'Medicina Física y Rehabilitación'),
 (307, 'Medicina General'), (308, 'Nutrición y Dietética'), (309, 'Odontología General'),
@@ -55,26 +55,26 @@ INSERT INTO especialidad (id_especialidad, nombre) OVERRIDING SYSTEM VALUE VALUE
 (318, 'Anestesiología');
 
 -- Médicos (consultas, emergencias y cirujanos)
-INSERT INTO medico (id_medico, nombres, apellidos, dpi, telefono, municipio, departamento, area, especialidad_id, tipo_medico, costo_primera_consulta, horario_inicio, horario_fin) OVERRIDING SYSTEM VALUE VALUES
-(1001, 'Carmen', 'Ruiz Palacios', '2001123450101', '5551-2001', 'Quetzaltenango', 'Quetzaltenango', 'Urbana', 307, 'general', 200.00, '08:00', '12:00'),
-(1002, 'Roberto', 'Castillo Méndez', '2001123450102', '5551-2002', 'Olintepeque', 'Quetzaltenango', 'Urbana', 301, 'especialista', 220.00, '08:00', '11:30'),
-(1003, 'Andrea', 'Soto Fuentes', '2001123450103', '5551-2003', 'San Marcos', 'San Marcos', 'Rural', 303, 'especialista', 160.00, '09:00', '12:00'),
-(1004, 'Julia', 'Paredes Ovalle', '2001123450104', '5551-2004', 'Quetzaltenango', 'Quetzaltenango', 'Urbana', 312, 'especialista', 180.00, '08:00', '12:00'),
-(1005, 'Miguel', 'Barrios Donis', '2001123450105', '5551-2005', 'Coatepeque', 'Quetzaltenango', 'Rural', 307, 'general', 180.00, '08:00', '12:00'),
-(1006, 'Alejandro', 'Ramírez Lemus', '2001123450106', '5551-2006', 'Quetzaltenango', 'Quetzaltenango', 'Urbana', 315, 'residente', NULL, NULL, NULL),
-(1007, 'Hilda', 'Cifuentes Rojas', '2001123450107', '5551-2007', 'San Marcos', 'San Marcos', 'Urbana', 316, 'externo', NULL, NULL, NULL),
-(1008, 'Daniel', 'Morales Peña', '2001123450108', '5551-2008', 'Quetzaltenango', 'Quetzaltenango', 'Urbana', 318, 'interno', NULL, NULL, NULL),
-(1009, 'Silvia', 'Vásquez Cotero', '2001123450109', '5551-2009', 'Totonicapán', 'Totonicapán', 'Urbana', 317, 'especialista', NULL, NULL, NULL);
+INSERT INTO medico (id_medico, nombres, apellidos, dpi, telefono, municipio_id, area, especialidad_id, tipo_medico, costo_primera_consulta, horario_inicio, horario_fin) VALUES
+(1001, 'Carmen', 'Ruiz Palacios', '2001123450101', '5551-2001', (SELECT id_municipio FROM municipio WHERE nombre='Quetzaltenango'), 'Urbana', 307, 'general', 200.00, '08:00', '12:00'),
+(1002, 'Roberto', 'Castillo Méndez', '2001123450102', '5551-2002', (SELECT id_municipio FROM municipio WHERE nombre='Olintepeque'), 'Urbana', 301, 'especialista', 220.00, '08:00', '11:30'),
+(1003, 'Andrea', 'Soto Fuentes', '2001123450103', '5551-2003', (SELECT id_municipio FROM municipio WHERE nombre='San Marcos'), 'Rural', 303, 'especialista', 160.00, '09:00', '12:00'),
+(1004, 'Julia', 'Paredes Ovalle', '2001123450104', '5551-2004', (SELECT id_municipio FROM municipio WHERE nombre='Quetzaltenango'), 'Urbana', 312, 'especialista', 180.00, '08:00', '12:00'),
+(1005, 'Miguel', 'Barrios Donis', '2001123450105', '5551-2005', (SELECT id_municipio FROM municipio WHERE nombre='Coatepeque'), 'Rural', 307, 'general', 180.00, '08:00', '12:00'),
+(1006, 'Alejandro', 'Ramírez Lemus', '2001123450106', '5551-2006', (SELECT id_municipio FROM municipio WHERE nombre='Quetzaltenango'), 'Urbana', 315, 'residente', NULL, NULL, NULL),
+(1007, 'Hilda', 'Cifuentes Rojas', '2001123450107', '5551-2007', (SELECT id_municipio FROM municipio WHERE nombre='San Marcos'), 'Urbana', 316, 'externo', NULL, NULL, NULL),
+(1008, 'Daniel', 'Morales Peña', '2001123450108', '5551-2008', (SELECT id_municipio FROM municipio WHERE nombre='Quetzaltenango'), 'Urbana', 318, 'interno', NULL, NULL, NULL),
+(1009, 'Silvia', 'Vásquez Cotero', '2001123450109', '5551-2009', (SELECT id_municipio FROM municipio WHERE nombre='Totonicapán'), 'Urbana', 317, 'especialista', NULL, NULL, NULL);
 
 -- Enfermeros
-INSERT INTO enfermero (id_enfermero, nombres, apellidos, dpi, telefono, tipo) OVERRIDING SYSTEM VALUE VALUES
+INSERT INTO enfermero (id_enfermero, nombres, apellidos, dpi, telefono, tipo) VALUES
 (2001, 'Luis', 'Hernández Solís', '2001123450201', '5552-2001', 'registrado'),
 (2002, 'Marta', 'Recinos Alvarado', '2001123450202', '5552-2002', 'registrado'),
 (2003, 'José', 'Pérez Gaitán', '2001123450203', '5552-2003', 'practicante_de_enfermeria'),
 (2004, 'Karen', 'Chacón Barrera', '2001123450204', '5552-2004', 'registrado');
 
 -- Camillas (por hospital, numeración única dentro de cada hospital)
-INSERT INTO camilla (id_camilla, hospital_id, unidad_id, numero, disponible) OVERRIDING SYSTEM VALUE VALUES
+INSERT INTO camilla (id_camilla, hospital_id, unidad_id, numero, disponible) VALUES
 (101, 1, 11, '101', TRUE), (102, 1, 11, '102', TRUE),
 (111, 1, 12, '111', TRUE), (112, 1, 12, '112', TRUE), (113, 1, 12, '113', TRUE),
 (121, 1, 14, '121', FALSE), (122, 1, 14, '122', TRUE), (123, 1, 14, '123', FALSE), (124, 1, 14, '124', TRUE),
@@ -82,12 +82,12 @@ INSERT INTO camilla (id_camilla, hospital_id, unidad_id, numero, disponible) OVE
 (221, 2, 24, '221', TRUE), (222, 2, 24, '222', TRUE);
 
 -- Quirófanos
-INSERT INTO quirofano (id_quirofano, hospital_id, numero, estado) OVERRIDING SYSTEM VALUE VALUES
+INSERT INTO quirofano (id_quirofano, hospital_id, numero, estado) VALUES
 (1, 1, 'Q-1', 'disponible'), (2, 1, 'Q-2', 'ocupado'), (3, 1, 'Q-3', 'disponible'), (4, 1, 'Q-4', 'en_mantenimiento'),
 (5, 2, 'Q-1', 'disponible'), (6, 2, 'Q-2', 'disponible');
 
 -- Insumos
-INSERT INTO insumo (id_insumo, nombre, descripcion, material, tipo) OVERRIDING SYSTEM VALUE VALUES
+INSERT INTO insumo (id_insumo, nombre, descripcion, material, tipo) VALUES
 (1, 'Solución salina 0.9% 1000 ml', 'Solución para hidratación parenteral.', 'Plástico', 'medico'),
 (2, 'Catéter intravenoso 20G', 'Para acceso venoso periférico.', 'Acero/plástico', 'medico'),
 (3, 'Seda quirúrgica 2-0', 'Hilo de sutura no absorbible.', 'Seda', 'quirurgico'),
@@ -98,7 +98,7 @@ INSERT INTO insumo (id_insumo, nombre, descripcion, material, tipo) OVERRIDING S
 (8, 'Paracetamol 500 mg', 'Analgésico y antipirético.', 'Blíster', 'medico');
 
 -- Instrumentos
-INSERT INTO instrumento (id_instrumento, nombre, descripcion, tipo, funcion) OVERRIDING SYSTEM VALUE VALUES
+INSERT INTO instrumento (id_instrumento, nombre, descripcion, tipo, funcion) VALUES
 (1, 'Bisturí No. 3 con hoja No. 15', 'Bisturí desechable para incisiones.', 'quirurgico', 'corte'),
 (2, 'Pinza de campo Backhaus', 'Fija campos quirúrgicos a la mesa.', 'quirurgico', 'contencion'),
 (3, 'Pinza hemostática Mosquito', 'Controla sangrado de vasos pequeños.', 'quirurgico', 'hemostatica'),
@@ -107,7 +107,7 @@ INSERT INTO instrumento (id_instrumento, nombre, descripcion, tipo, funcion) OVE
 (6, 'Tijeras Mayo curvas', 'Para corte de tejido y suturas.', 'quirurgico', 'corte');
 
 -- Equipos
-INSERT INTO equipo (id_equipo, nombre, descripcion, tipo, funcion) OVERRIDING SYSTEM VALUE VALUES
+INSERT INTO equipo (id_equipo, nombre, descripcion, tipo, funcion) VALUES
 (1, 'Monitor multiparamétrico', 'Monitorea ECG, SpO2 y presión.', 'medico', 'exploracion'),
 (2, 'Electrobisturí', 'Corte y coagulación con corriente de alta frecuencia.', 'medico', 'tratamiento'),
 (3, 'Ventilador mecánico', 'Asistencia respiratoria invasiva.', 'medico', 'tratamiento'),
