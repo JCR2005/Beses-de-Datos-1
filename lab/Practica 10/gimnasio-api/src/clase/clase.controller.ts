@@ -1,0 +1,55 @@
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+} from '@nestjs/common';
+import { ClaseService } from './clase.service.js';
+import { CreateClaseDto } from './dto/create-clase.dto.js';
+import { UpdateClaseDto } from './dto/update-clase.dto.js';
+
+@Controller('clase')
+export class ClaseController {
+  constructor(private readonly service: ClaseService) {}
+
+  // Las rutas fijas van ANTES de ':id' para que no se confundan con un id
+
+  @Get('con-entrenador') // 10B-I: relations
+  conEntrenador() {
+    return this.service.conEntrenador();
+  }
+
+  @Get('especialidad/:nombre') // 10B-II: QueryBuilder
+  porEspecialidad(@Param('nombre') nombre: string) {
+    return this.service.porEspecialidad(nombre);
+  }
+
+  @Get()
+  findAll() {
+    return this.service.findAll();
+  }
+
+  @Get(':id')
+  findOne(@Param('id', ParseIntPipe) id: number) {
+    return this.service.findOne(id);
+  }
+
+  @Post()
+  create(@Body() dto: CreateClaseDto) {
+    return this.service.create(dto);
+  }
+
+  @Patch(':id')
+  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateClaseDto) {
+    return this.service.update(id, dto);
+  }
+
+  @Delete(':id')
+  remove(@Param('id', ParseIntPipe) id: number) {
+    return this.service.remove(id);
+  }
+}
