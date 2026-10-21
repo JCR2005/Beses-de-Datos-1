@@ -110,7 +110,7 @@ Transferir a `admin` la propiedad de los objetos del esquema y definir sus privi
 - **Depende de:** 2, 5
 
 ### Tarea 13: PDF del Proyecto 2 (M)
-- [ ] `documentacion/generar_documento.py`: modelo extendido, diccionario de las tablas nuevas o modificadas (con DELETE/UPDATE y justificación), las 20 consultas con su captura, el ORM, el Bloque E, la auditoría y la comparación de rendimiento
+- [x] `documentacion/generar_documento.py`: modelo extendido, diccionario de las tablas nuevas o modificadas (con DELETE/UPDATE y justificación), las 20 consultas con su captura, el ORM, el Bloque E, la auditoría y la comparación de rendimiento
 - **Verificación:** el PDF abre; están las 4 tablas de diccionario (`personal`, `medico`, `enfermero`, `auditoria_personal`)
 - **Depende de:** 10–12
 
