@@ -122,7 +122,7 @@ insert into ingreso (id_ingreso, id_paciente, id_unidad, id_servicio, id_medico_
 select 2000 + g.n, 1 + (g.n * 13 + 5) % 67, 10 * g.h + 4, (g.h - 1) * 100 + 8 + g.n % 9,
        (select id_medico from medico where id_hospital = g.h and tipo_medico <> 'externo' order by id_medico
          offset g.n % (select count(*) from medico where id_hospital = g.h and tipo_medico <> 'externo') limit 1),
-       (g.h - 1) * 100 + 1 + g.n % (array[24, 12, 10, 14, 10])[g.h],
+       (g.h - 1) * 100 + 1 + (g.n / 5) % (array[24, 12, 10, 14, 10])[g.h],
        ((date '2026-01-08' + (g.n * 5) % 280) + time '10:00' + (g.n % 8) * interval '1 hour') at time zone 'America/Guatemala',
        (array['Neumonía que requiere oxígeno.', 'Control de diabetes descompensada.', 'Recuperación postquirúrgica.',
               'Observación por trauma craneal.', 'Tratamiento de infección urinaria complicada.'])[1 + g.n % 5],
