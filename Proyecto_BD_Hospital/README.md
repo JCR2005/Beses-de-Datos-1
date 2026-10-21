@@ -57,3 +57,21 @@ PGPASSWORD=... python3 documentacion/generar_diccionario.py
 
 - SGBD: PostgreSQL 18 (Docker, puerto 5433) — dueño `hospital`, zona horaria `America/Guatemala`.
 - Generadores: Python 3 con `reportlab` y `Pillow`, y Graphviz (`dot`).
+
+## Proyecto 2
+
+El Proyecto 2 extiende esta misma base y está en
+[`../Base de Datos Hospitalaria/proyecto-2/`](../Base%20de%20Datos%20Hospitalaria/proyecto-2/README.md):
+
+| Carpeta | Contenido |
+|---------|-----------|
+| `modelo/` | Modelo extendido en notación Barker (draw.io + imagen) |
+| `sql/ddl/` | Migración: admin como dueño, supertipo PERSONAL, cadena de mando y descripciones |
+| `sql/dml/` | Ampliación de datos de enero a octubre de 2026 |
+| `sql/consultas/` | Una función por objetivo y la medición de rendimiento del objetivo 17 |
+| `sql/auditoria/` | Bitácora automática de cambios sensibles y su demostración |
+| `orm/` | Objetivos 8, 11 y 18 con Java y JPA (Hibernate) |
+| `backup/` | Respaldo pg_dump de la base extendida |
+| `documentacion/` | PDF con diccionario de datos, los 20 objetivos y sus capturas |
+
+Después de aplicar el Proyecto 2, el dueño de los objetos del esquema es el rol `admin`.

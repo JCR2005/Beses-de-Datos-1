@@ -115,10 +115,10 @@ Transferir a `admin` la propiedad de los objetos del esquema y definir sus privi
 - **Depende de:** 10–12
 
 ### Tarea 14: Respaldo, README y entrega (S)
-- [ ] `backup/hospital_p2.backup`; README con la sección del Proyecto 2; push final
+- [x] `backup/hospital_p2.backup`; README con la sección del Proyecto 2; push final
 - **Verificación:** la restauración en una base nueva da los mismos conteos
 - **Depende de:** 13
 
 ### Checkpoint final
-- [ ] Se cumplen todos los entregables de la página 12 del enunciado
-- [ ] Revisión con el usuario antes del 25/10
+- [x] Se cumplen todos los entregables de la página 12 del enunciado
+- [x] Revisión con el usuario antes del 25/10

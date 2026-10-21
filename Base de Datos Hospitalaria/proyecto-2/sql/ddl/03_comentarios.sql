@@ -6,19 +6,6 @@
 begin;
 set search_path to public;
 
--- la bitacora es del rol dueno_auditoria: la comenta el superusuario
-comment on table auditoria_personal is 'Bitácora automática de los cambios de salario, nivel de acceso y especialidad del personal.';
-comment on column auditoria_personal.id_auditoria is 'Identificador del registro de la bitácora (lo genera la base, no se puede asignar).';
-comment on column auditoria_personal.fecha_hora is 'Momento exacto del cambio (clock_timestamp).';
-comment on column auditoria_personal.usuario_bd is 'Rol de base de datos que hizo el cambio.';
-comment on column auditoria_personal.usuario_sesion is 'Usuario con el que se inició la sesión (distinto del rol si se usó SET ROLE).';
-comment on column auditoria_personal.usuario_aplicacion is 'Usuario de la aplicación que hizo el cambio, enviado en la variable app.usuario.';
-comment on column auditoria_personal.tabla is 'Tabla donde ocurrió el cambio: personal o medico.';
-comment on column auditoria_personal.id_registro is 'Identificador de la persona cuyo dato cambió (id_personal = id_medico).';
-comment on column auditoria_personal.campo is 'Campo que cambió: salario, nivel_acceso o id_especialidad.';
-comment on column auditoria_personal.valor_anterior is 'Valor antes del cambio.';
-comment on column auditoria_personal.valor_nuevo is 'Valor después del cambio.';
-
 set role admin;
 
 comment on table personal is 'Supertipo con los datos comunes de todo el personal del hospital; sus subtipos son medico y enfermero.';
