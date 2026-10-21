@@ -1,6 +1,6 @@
 # Tareas — Proyecto 2
 
-Rutas relativas a `Proyecto_BD_Hospital/proyecto-2/`. Cada tarea termina con un commit.
+Rutas relativas a `Base de Datos Hospitalaria/proyecto-2/`. Cada tarea termina con un commit.
 
 ## Fase 1: Base extendida
 
@@ -56,45 +56,45 @@ Transferir a `admin` la propiedad de los objetos del esquema y definir sus privi
 ## Fase 2: Lógica y consultas
 
 ### Tarea 5: Bloque F — auditoría (S)
-- [ ] `sql/auditoria/01_auditoria.sql`:
+- [x] `sql/auditoria/01_auditoria.sql`:
   - tabla `auditoria_personal` con usuario de BD, usuario de aplicación (`app.usuario`), tabla, registro, campo, valor anterior, valor nuevo y `clock_timestamp()`;
   - triggers sobre `personal` (`salario`, `nivel_acceso`) y `medico` (`id_especialidad`);
   - función `security definer`;
   - nadie puede modificar la bitácora, ni siquiera `admin`.
-- [ ] `sql/auditoria/02_prueba.sql`: 2 o más cambios de prueba y la consulta de la bitácora
+- [x] `sql/auditoria/02_prueba.sql`: 2 o más cambios de prueba y la consulta de la bitácora
 - **Verificación:** cada cambio genera una fila por campo; un update que no cambia el valor no genera nada; `delete from auditoria_personal` falla para `admin`
 - **Depende de:** 2
 
 ### Tarea 6: Consultas 1–7 (M)
-- [ ] `sql/consultas/objetivo_01.sql` a `objetivo_07.sql`, cada una como `fn_objetivo_XX(desde, hasta)` con comentario del objetivo y la métrica
+- [x] `sql/consultas/objetivo_01.sql` a `objetivo_07.sql`, cada una como `fn_objetivo_XX(desde, hasta)` con comentario del objetivo y la métrica
 - **Verificación:** se ejecutan como `visor` con el rango ene–oct; devuelven filas con sentido; un caso de cada una se verifica a mano
 - **Depende de:** 4
 
 ### Tarea 7: Consultas 8–14 (M)
-- [ ] `objetivo_08.sql` a `objetivo_14.sql`
+- [x] `objetivo_08.sql` a `objetivo_14.sql`
 - **Verificación:** igual que la tarea 6; el total del 11 cuadra con `sum(total)` de `factura`
 - **Depende de:** 4
 
 ### Tarea 8: Consultas 16 y 18 + Bloque E (M)
-- [ ] `objetivo_16.sql`: `fn_cadena_mando(id_medico)` con CTE recursiva y nivel
-- [ ] `objetivo_18.sql`: división relacional con `not exists` doble y el álgebra en un comentario
-- [ ] `objetivo_19.sql`: propuesta en 3FN en el esquema `propuesta_bloque_e`, con datos de ejemplo
+- [x] `objetivo_16.sql`: `fn_cadena_mando(id_medico)` con CTE recursiva y nivel
+- [x] `objetivo_18.sql`: división relacional con `not exists` doble y el álgebra en un comentario
+- [x] `objetivo_19.sql`: propuesta en 3FN en el esquema `propuesta_bloque_e`, con datos de ejemplo
 - **Verificación:** la cadena de un médico de nivel 4 devuelve 4 filas hasta el director; el 18 coincide con la versión `group by ... having count(distinct) = 4`
 - **Depende de:** 4
 
 ### Tarea 9: Objetivo 17 — ranking y rendimiento (M)
-- [ ] `objetivo_17.sql`: forma A (ventana) y forma B (correlacionada) dan el mismo resultado
-- [ ] `objetivo_17_rendimiento.sql` + script que copia la base, la infla a 1k, 10k y 100k calificaciones y guarda los tiempos de `EXPLAIN ANALYZE`
+- [x] `objetivo_17.sql`: forma A (ventana) y forma B (correlacionada) dan el mismo resultado
+- [x] `objetivo_17_rendimiento.sql` + script que copia la base, la infla a 1k, 10k y 100k calificaciones y guarda los tiempos de `EXPLAIN ANALYZE`
 - **Verificación:** `except` entre A y B devuelve 0 filas; tabla de tiempos con conclusión
 - **Depende de:** 6
 
 ### Checkpoint 2
-- [ ] Las 20 consultas se ejecutan como `visor`; commit y push; revisión con el usuario
+- [x] Las 20 consultas se ejecutan como `visor`; commit y push; revisión con el usuario
 
 ## Fase 3: ORM, evidencia y entrega
 
 ### Tarea 10: ORM (M)
-- [ ] `orm/`: `requirements.txt`, modelos SQLAlchemy (solo las tablas usadas), objetivos 8, 11 y 18 con parámetros enlazados, `comparar.py`
+- [ ] `orm/`: proyecto Maven con JPA (Hibernate), entidades de las tablas usadas, objetivos 8, 11 y 18 con parámetros enlazados y una clase que compara con el SQL
 - **Verificación:** `comparar.py` imprime "iguales" para los 3 objetivos; ningún valor entra concatenado al SQL
 - **Depende de:** 7, 8
 

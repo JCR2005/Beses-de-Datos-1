@@ -1,6 +1,6 @@
 # Plan de implementación: Proyecto 2 — Consultas avanzadas, lógica del negocio y seguridad
 
-Entrega: **domingo 25 de octubre de 2026, 23:59**, en `Proyecto_BD_Hospital/proyecto-2/` del mismo repo.
+Entrega: **domingo 25 de octubre de 2026, 23:59**, en `Base de Datos Hospitalaria/proyecto-2/` del mismo repo (todo lo del Proyecto 2 va en `Base de Datos Hospitalaria/`, por indicación del usuario).
 Base: la del Proyecto 1 reestructurada (PostgreSQL 18, Docker `hospital-db`, puerto 5433, BD `hospital`).
 
 ## Qué pide el enunciado
@@ -48,7 +48,7 @@ Carpetas exigidas: `modelo/`, `sql/ddl/`, `sql/dml/`, `sql/consultas/`, `sql/aud
    - Se agregan los hospitales 4 y 5, porque un "top 3" con solo 3 hospitales no dice nada.
    - Los datos cubren de enero a octubre de 2026.
    - Los volúmenes se generan con SQL determinista (`setseed` + `generate_series`), para que se reproduzcan igual cada vez. Los registros que se usan para explicar casos quedan escritos a mano.
-6. **ORM: Python + SQLAlchemy 2.0 + psycopg 3** en un entorno virtual (`orm/.venv`, fuera de git) con `requirements.txt`. Cubre los objetivos 8, 11 y 18. Un script compara fila por fila el resultado del ORM con el de la función SQL.
+6. **ORM: Java + JPA (Hibernate) + driver JDBC de PostgreSQL**, elegido por el usuario porque es lo que más ha usado. Proyecto Maven en `orm/`. Cubre los objetivos 8, 11 y 18 con consultas JPQL/Criteria y parámetros enlazados. Una clase compara fila por fila el resultado del ORM con el de la función SQL.
 7. **Objetivo 17.**
    - Forma A: funciones de ventana `RANK() OVER (PARTITION BY hospital)` y `RANK() OVER ()`.
    - Forma B: subconsultas correlacionadas que cuentan cuántos médicos tienen mejor promedio.
@@ -87,11 +87,11 @@ Carpetas exigidas: `modelo/`, `sql/ddl/`, `sql/dml/`, `sql/consultas/`, `sql/aud
 | Objetivos ambiguos (4, 5, 7, 9) | Alto | Métrica explícita en la tabla de arriba y en el PDF; mostrar cada componente para que se lea la decisión |
 | `admin` no es dueño de las tablas | Alto | Tarea 1 transfiere la propiedad antes de cualquier migración |
 | Volumen de datos insuficiente para rankings | Alto | Tareas 3–4 con conteos verificados por tabla (≥ 15) |
-| Instalar SQLAlchemy y psycopg desde PyPI | Medio | Entorno virtual local; confirmar con el usuario antes de instalar |
+| Descargar Hibernate y el driver JDBC (Maven Central) | Medio | Confirmar con el usuario antes de descargar; verificar que Java y Maven estén instalados |
 | Plazo de 5 días | Alto | Lo crítico primero (B, datos, consultas); el PDF y las capturas se generan con scripts |
 | Defensa oral | Medio | Cada decisión documentada; consultas legibles con CTE nombradas |
 
 ## Preguntas abiertas
 - ¿Acepta el ingeniero el criterio de las métricas ambiguas? Si cambia alguna, solo se ajusta su función.
 - ¿Capturas generadas por script o de DBeaver?
-- ¿Se aprueba instalar SQLAlchemy y psycopg en un entorno virtual?
+- ¿Se aprueba descargar las dependencias de Maven para el ORM?
