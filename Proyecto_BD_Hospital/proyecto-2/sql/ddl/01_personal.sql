@@ -11,6 +11,7 @@
 --
 -- Se ejecuta con el rol administrativo.
 
+begin;
 set role admin;
 set search_path to public;
 
@@ -194,3 +195,4 @@ create constraint trigger trg_personal_completo after insert on personal
     for each row execute function fn_personal_completo();
 
 reset role;
+commit;

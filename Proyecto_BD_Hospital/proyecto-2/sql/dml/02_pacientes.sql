@@ -6,6 +6,7 @@
 -- produce los mismos datos) y cubra ambos sexos, todas las edades, zonas
 -- urbanas y rurales y los municipios de los 5 hospitales.
 
+begin;
 set role admin;
 set search_path to public;
 
@@ -64,3 +65,4 @@ begin
 end $$;
 
 reset role;
+commit;

@@ -8,6 +8,7 @@
 --
 -- Se ejecuta con el rol administrativo.
 
+begin;
 set role admin;
 set search_path to public;
 
@@ -59,3 +60,4 @@ create trigger trg_02_medico_jerarquia before insert or update on medico
     for each row execute function fn_medico_jerarquia();
 
 reset role;
+commit;

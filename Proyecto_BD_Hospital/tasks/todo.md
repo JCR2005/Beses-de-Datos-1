@@ -6,20 +6,20 @@ Rutas relativas a `Proyecto_BD_Hospital/proyecto-2/`. Cada tarea termina con un 
 
 ### Tarea 1: `admin` como dueño del esquema (S)
 Transferir a `admin` la propiedad de los objetos del esquema y definir sus privilegios por defecto hacia `visor`.
-- [ ] `sql/ddl/00_propietario.sql` lo ejecuta `hospital` y es idempotente
-- [ ] Todas las tablas, vistas, funciones y secuencias son de `admin`
-- [ ] Un objeto creado por `admin` queda legible para `visor` sin `GRANT` manual
+- [x] `sql/ddl/00_propietario.sql` lo ejecuta `hospital` y es idempotente
+- [x] Todas las tablas, vistas, funciones y secuencias son de `admin`
+- [x] Un objeto creado por `admin` queda legible para `visor` sin `GRANT` manual
 - **Verificación:** `set role admin; alter table medico add column x int;` funciona dentro de una transacción con `rollback`; `pg_tables.tableowner` = `admin`
 - **Depende de:** nada
 
 ### Tarea 2: Bloque B — `personal`, subtipos y jerarquía (M)
-- [ ] `sql/ddl/01_personal.sql`:
+- [x] `sql/ddl/01_personal.sql`:
   - `personal` con discriminador y `CHECK` en `tipo_personal`, `area`, `nivel_acceso`, `salario` y fechas;
   - FK compuesta de `medico` y `enfermero` hacia `personal`;
   - se copian los 35 registros existentes;
   - trigger de sincronización.
-- [ ] `sql/ddl/02_jerarquia.sql`: `id_medico_superior` (`SET NULL`), `cargo` con `CHECK`, un director por hospital, trigger contra ciclos y contra superiores de otro hospital
-- [ ] Todo se ejecuta con `set role admin` y está comentado (una línea por tabla y por `CHECK`)
+- [x] `sql/ddl/02_jerarquia.sql`: `id_medico_superior` (`SET NULL`), `cargo` con `CHECK`, un director por hospital, trigger contra ciclos y contra superiores de otro hospital
+- [x] Todo se ejecuta con `set role admin` y está comentado (una línea por tabla y por `CHECK`)
 - **Verificación:**
   - un update del teléfono en `personal` se refleja en `medico`;
   - un update directo del teléfono en `medico` lo revierte el trigger;
@@ -29,20 +29,20 @@ Transferir a `admin` la propiedad de los objetos del esquema y definir sus privi
 - **Depende de:** 1
 
 ### Tarea 3: Ampliación de datos I — red, personal y pacientes (M)
-- [ ] `sql/dml/01_red_y_personal.sql`:
+- [x] `sql/dml/01_red_y_personal.sql`:
   - hospitales 4 y 5 con sus unidades, servicios, camillas y quirófanos;
   - personal hasta unos 50 médicos y 20 enfermeros;
   - cargos y superiores de 3 o 4 niveles por hospital;
   - salario y nivel de acceso.
-- [ ] `sql/dml/02_pacientes.sql`: unos 60 pacientes y 20 encargados, con edades y sexos variados
+- [x] `sql/dml/02_pacientes.sql`: unos 60 pacientes y 20 encargados, con edades y sexos variados
 - **Verificación:** conteos ≥ 15 en cada tabla tocada; la cadena de mando llega al director en todos los hospitales
 - **Depende de:** 2
 
 ### Tarea 4: Ampliación de datos II — actividad clínica y financiera, enero–octubre 2026 (L → 4 archivos)
-- [ ] `03_consulta_externa.sql`: unas 200 citas en todos los estados, consultas, recetas con próxima cita y calificaciones ligadas a consultas
-- [ ] `04_emergencias_hospitalizacion.sql`: turnos con 2 o más médicos, ingresos con triage y espera variados, egresos con varios "muerto", hospitalizaciones con insumos, traslados
-- [ ] `05_cirugia.sql`: unos 40 agendamientos aprobados, rechazados y pendientes, con requerimientos de los 3 tipos, consentimiento, chequeo, cirugías con registros por aspecto (algunos con falla o "no aceptable") y algunas con complicaciones
-- [ ] `06_facturacion.sql`: facturas de cada origen, planes de 1 a 12 cuotas, pagos con los 3 métodos principales
+- [x] `03_consulta_externa.sql`: unas 200 citas en todos los estados, consultas, recetas con próxima cita y calificaciones ligadas a consultas
+- [x] `04_emergencias_hospitalizacion.sql`: turnos con 2 o más médicos, ingresos con triage y espera variados, egresos con varios "muerto", hospitalizaciones con insumos, traslados
+- [x] `05_cirugia.sql`: unos 40 agendamientos aprobados, rechazados y pendientes, con requerimientos de los 3 tipos, consentimiento, chequeo, cirugías con registros por aspecto (algunos con falla o "no aceptable") y algunas con complicaciones
+- [x] `06_facturacion.sql`: facturas de cada origen, planes de 1 a 12 cuotas, pagos con los 3 métodos principales
 - **Verificación:**
   - todos los triggers de reglas de negocio aceptan los datos;
   - hay ≥ 1 paciente atendido en las 4 unidades y ≥ 1 al que le falta una;
@@ -50,8 +50,8 @@ Transferir a `admin` la propiedad de los objetos del esquema y definir sus privi
 - **Depende de:** 3
 
 ### Checkpoint 1
-- [ ] La base se reconstruye desde cero: P1 + P2 (`ddl`, `dml`) sin errores
-- [ ] Commit y push; revisión con el usuario
+- [x] La base se reconstruye desde cero: P1 + P2 (`ddl`, `dml`) sin errores
+- [x] Commit y push; revisión con el usuario
 
 ## Fase 2: Lógica y consultas
 

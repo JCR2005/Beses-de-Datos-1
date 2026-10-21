@@ -8,6 +8,7 @@
 --
 -- Lo ejecuta el dueño actual (hospital). Se puede ejecutar varias veces.
 
+begin;
 set search_path to public;
 
 do $$
@@ -45,3 +46,4 @@ alter default privileges for role admin in schema public
     revoke execute on functions from public;
 alter default privileges for role admin in schema public
     grant execute on functions to visor;
+commit;

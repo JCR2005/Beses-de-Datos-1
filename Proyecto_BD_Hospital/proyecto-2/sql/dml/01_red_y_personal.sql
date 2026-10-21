@@ -5,6 +5,7 @@
 -- entre varios hospitales, y personal suficiente para turnos, consultas y
 -- cirugias en todos ellos, con su cadena de mando.
 
+begin;
 set role admin;
 set search_path to public;
 
@@ -160,3 +161,4 @@ begin
 end $$;
 
 reset role;
+commit;
