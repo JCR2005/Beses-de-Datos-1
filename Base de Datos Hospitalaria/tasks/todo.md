@@ -104,8 +104,8 @@ Transferir a `admin` la propiedad de los objetos del esquema y definir sus privi
 - **Depende de:** 5–9
 
 ### Tarea 12: Diagrama extendido en draw.io (S/M)
-- [ ] `modelo/generar_modelo.py` adaptado: subtipos dentro de `PERSONAL`, recursiva anotada, entidades nuevas resaltadas
-- [ ] Salidas: `.drawio` y `.png`
+- [x] `modelo/generar_modelo.py` adaptado: subtipos dentro de `PERSONAL`, recursiva anotada, entidades nuevas resaltadas
+- [x] Salidas: `.drawio` y `.png`
 - **Verificación:** abre en diagrams.net; se ven el supertipo, los subtipos y la recursiva
 - **Depende de:** 2, 5
 
