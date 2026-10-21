@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Unidad de persistencia: se conecta con el rol de solo lectura (visor).
+     La contraseña no se guarda aqui: se lee de la variable de entorno
+     HOSPITAL_DB_PASSWORD (ver Conexion.java). -->
+<persistence xmlns="https://jakarta.ee/xml/ns/persistence"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xsi:schemaLocation="https://jakarta.ee/xml/ns/persistence https://jakarta.ee/xml/ns/persistence/persistence_3_0.xsd"
+             version="3.0">
+    <persistence-unit name="hospital" transaction-type="RESOURCE_LOCAL">
+        <class>gt.cunoc.hospital.orm.modelo.Hospital</class>
+        <class>gt.cunoc.hospital.orm.modelo.UnidadMedica</class>
+        <class>gt.cunoc.hospital.orm.modelo.Paciente</class>
+        <class>gt.cunoc.hospital.orm.modelo.Cita</class>
+        <class>gt.cunoc.hospital.orm.modelo.Consulta</class>
+        <class>gt.cunoc.hospital.orm.modelo.Ingreso</class>
+        <class>gt.cunoc.hospital.orm.modelo.MetodoPago</class>
+        <class>gt.cunoc.hospital.orm.modelo.Factura</class>
+        <class>gt.cunoc.hospital.orm.modelo.Pago</class>
+        <exclude-unlisted-classes>true</exclude-unlisted-classes>
+        <properties>
+            <property name="jakarta.persistence.jdbc.driver" value="org.postgresql.Driver"/>
+            <property name="jakarta.persistence.jdbc.url" value="jdbc:postgresql://localhost:5433/hospital"/>
+            <property name="jakarta.persistence.jdbc.user" value="visor"/>
+            <!-- el esquema ya existe: el ORM solo lo lee, nunca lo crea ni lo modifica -->
+            <property name="hibernate.hbm2ddl.auto" value="none"/>
+            <property name="hibernate.connection.readOnly" value="true"/>
+        </properties>
+    </persistence-unit>
+</persistence>

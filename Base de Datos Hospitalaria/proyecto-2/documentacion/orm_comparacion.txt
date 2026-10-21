@@ -1,0 +1,3 @@
+Objetivo 8   ORM:  20 filas | SQL:  20 filas -> iguales
+Objetivo 11  ORM:   5 filas | SQL:   5 filas -> iguales
+Objetivo 18  ORM:  30 filas | SQL:  30 filas -> iguales

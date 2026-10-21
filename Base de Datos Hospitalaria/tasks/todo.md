@@ -94,7 +94,7 @@ Transferir a `admin` la propiedad de los objetos del esquema y definir sus privi
 ## Fase 3: ORM, evidencia y entrega
 
 ### Tarea 10: ORM (M)
-- [ ] `orm/`: proyecto Maven con JPA (Hibernate), entidades de las tablas usadas, objetivos 8, 11 y 18 con parámetros enlazados y una clase que compara con el SQL
+- [x] `orm/`: proyecto Maven con JPA (Hibernate), entidades de las tablas usadas, objetivos 8, 11 y 18 con parámetros enlazados y una clase que compara con el SQL
 - **Verificación:** `comparar.py` imprime "iguales" para los 3 objetivos; ningún valor entra concatenado al SQL
 - **Depende de:** 7, 8
 

@@ -1,0 +1,176 @@
+
+Objetivo 8 - pagos por metodo, del 2026-01-01 al 2026-10-31
+Hospital                             Unidad                Efectivo  Tarjeta credito  Tarjeta debito
+Hibernate: 
+    select
+        h1_0.nombre,
+        f1_0.tipo_unidad,
+        sum(case 
+            when mp1_0.nombre=? 
+                then p1_0.monto 
+            else 0 
+    end),
+    sum(case 
+        when mp1_0.nombre=? 
+            then p1_0.monto 
+        else 0 
+end),
+sum(case 
+    when mp1_0.nombre=? 
+        then p1_0.monto 
+    else 0 
+end) 
+from
+    pago p1_0 
+join
+    metodo_pago mp1_0 
+        on mp1_0.id_metodo_pago=p1_0.id_metodo_pago 
+join
+    v_factura f1_0 
+        on f1_0.id_factura=p1_0.id_factura 
+join
+    hospital h1_0 
+        on h1_0.id_hospital=f1_0.id_hospital 
+where
+    p1_0.fecha_pago between ? and ? 
+group by
+    h1_0.id_hospital,
+    h1_0.nombre,
+    f1_0.tipo_unidad 
+order by
+    h1_0.id_hospital,
+    f1_0.tipo_unidad
+Hospital General de Occidente        Cirugía               16931.80         37625.24        14796.35
+Hospital General de Occidente        Consulta Externa       2940.75          3511.25         2710.75
+Hospital General de Occidente        Emergencias            9633.33         13433.33         9633.34
+Hospital General de Occidente        Hospitalización       13238.13         11242.98        13429.67
+Hospital Regional de San Marcos      Cirugía               10512.24          8744.64        23555.32
+Hospital Regional de San Marcos      Consulta Externa       2440.00          1702.50         1981.25
+Hospital Regional de San Marcos      Emergencias            7154.17          7593.33         5610.01
+Hospital Regional de San Marcos      Hospitalización        6092.32          6909.17        12958.62
+Hospital Infantil de Retalhuleu      Cirugía               16563.42         15600.64        15573.93
+Hospital Infantil de Retalhuleu      Consulta Externa       1197.50          1563.75         1074.25
+Hospital Infantil de Retalhuleu      Emergencias            6487.50          8557.50         7432.50
+Hospital Infantil de Retalhuleu      Hospitalización        6516.35          7136.37         7756.63
+Hospital de Occidente Huehuetenango  Cirugía                9148.91         11772.30         9224.79
+Hospital de Occidente Huehuetenango  Consulta Externa        883.75          1091.50         1261.25
+Hospital de Occidente Huehuetenango  Emergencias            5966.67          6686.67         6226.66
+Hospital de Occidente Huehuetenango  Hospitalización        8021.85          9982.35        10436.12
+Hospital de Occidente Sololá         Cirugía                3892.38          5543.74         3892.38
+Hospital de Occidente Sololá         Consulta Externa       1191.75           891.00         1120.00
+Hospital de Occidente Sololá         Emergencias            5412.50          6962.50         5287.50
+Hospital de Occidente Sololá         Hospitalización       10005.63          7307.14         9449.32
+
+Objetivo 11 - ingresos por hospital, del 2026-01-01 al 2026-10-31
+Hospital                              Facturas        Facturado        Cobrado      Pendiente
+Hibernate: 
+    select
+        f1_0.id_hospital,
+        count(f1_0.id_factura),
+        sum(f1_0.total) 
+    from
+        v_factura f1_0 
+    where
+        f1_0.fecha_emision>=? 
+        and f1_0.fecha_emision<? 
+    group by
+        f1_0.id_hospital
+Hibernate: 
+    select
+        f1_0.id_hospital,
+        sum(p1_0.monto) 
+    from
+        pago p1_0 
+    join
+        v_factura f1_0 
+            on f1_0.id_factura=p1_0.id_factura 
+    where
+        p1_0.fecha_pago between ? and ? 
+    group by
+        f1_0.id_hospital
+Hibernate: 
+    select
+        h1_0.id_hospital,
+        h1_0.nombre 
+    from
+        hospital h1_0
+Hospital General de Occidente              120        213519.50      157525.35       55994.15
+Hospital Infantil de Retalhuleu             72        159605.75      106041.59       53564.16
+Hospital Regional de San Marcos             87        147816.00      122884.32       24931.68
+Hospital de Occidente Huehuetenango         63        101871.50       84182.82       17688.68
+Hospital de Occidente Sololá                61         75242.75       62418.34       12824.41
+
+Objetivo 18 - pacientes atendidos en las 4 unidades, del 2026-01-01 al 2026-10-31
+  Id Expediente Paciente                      Edad Sexo      
+Hibernate: 
+    select
+        p1_0.id_paciente,
+        p1_0.numero_expediente,
+        p1_0.nombres,
+        p1_0.apellidos,
+        p1_0.fecha_nacimiento,
+        p1_0.sexo 
+    from
+        paciente p1_0 
+    where
+        exists(select
+            c1_0.id_consulta 
+        from
+            consulta c1_0 
+        join
+            cita c2_0 
+                on c2_0.id_cita=c1_0.id_cita 
+        where
+            c2_0.id_paciente=p1_0.id_paciente 
+            and c2_0.fecha_hora>=? 
+            and c2_0.fecha_hora<?) 
+        and not exists(select
+            um1_0.id_unidad 
+        from
+            unidad_medica um1_0 
+        where
+            um1_0.tipo_unidad<>? 
+            and not exists(select
+                i1_0.id_ingreso 
+            from
+                ingreso i1_0 
+            join
+                unidad_medica u1_0 
+                    on u1_0.id_unidad=i1_0.id_unidad 
+            where
+                i1_0.id_paciente=p1_0.id_paciente 
+                and u1_0.tipo_unidad=um1_0.tipo_unidad 
+                and i1_0.fecha_hora_ingreso>=? 
+                and i1_0.fecha_hora_ingreso<?)) 
+    order by
+        p1_0.id_paciente
+   2 HG1-0002   Jorge Luis Ramírez Sosa         35 Masculino 
+   3 HG1-0003   Pedro Gómez Aguilar             51 Masculino 
+   5 HG1-0005   Carlos De León Ortiz            44 Masculino 
+   9 HG5-0009   Andrés Cruz Sic                 58 Masculino 
+  11 HG2-0011   Héctor Fuentes Chávez           34 Masculino 
+  12 HG3-0012   Claudia Vásquez Paz             21 Femenino  
+  18 HG4-0018   Carmen Xicará Ruiz              31 Femenino  
+  19 HG5-0019   Luis Fernando Batz Rojas        18 Masculino 
+  22 HG3-0022   Gabriela Pérez Tum              65 Femenino  
+  23 HG4-0023   Pedro Morales Chávez            52 Masculino 
+  24 HG5-0024   Verónica Hernández Paz          40 Femenino  
+  25 HG1-0025   Ricardo Castillo Lima           27 Masculino 
+  26 HG2-0026   Julia Ramírez Ixcot             15 Femenino  
+  27 HG3-0027   Fernando Gómez Pop               3 Masculino 
+  28 HG4-0028   Daniela Méndez Barrios          74 Femenino  
+  35 HG1-0035   Diego Tzul Chávez               71 Masculino 
+  37 HG3-0037   Jorge Ajcá Lima                 46 Masculino 
+  38 HG4-0038   Paola Xicará Ixcot              34 Femenino  
+  40 HG1-0040   Marta García Barrios             9 Femenino  
+  41 HG2-0041   Héctor López Chan               80 Masculino 
+  43 HG4-0043   Rafael Morales Rojas            55 Masculino 
+  44 HG5-0044   Elena Hernández Soto            43 Femenino  
+  52 HG3-0052   Gabriela Vásquez Barrios        28 Femenino  
+  53 HG4-0053   Pedro Juárez Chan               15 Masculino 
+  54 HG5-0054   Verónica Sosa Ruiz               3 Femenino  
+  55 HG1-0055   Ricardo Tzul Rojas              74 Masculino 
+  56 HG2-0056   Julia Coyoy Soto                62 Femenino  
+  57 HG3-0057   Fernando Ajcá Sic               49 Masculino 
+  59 HG5-0059   Óscar Batz Chávez               25 Masculino 
+  61 HG2-0061   Carlos López Lima               83 Masculino 
