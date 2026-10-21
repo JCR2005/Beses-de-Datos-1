@@ -99,7 +99,7 @@ Transferir a `admin` la propiedad de los objetos del esquema y definir sus privi
 - **Depende de:** 7, 8
 
 ### Tarea 11: Capturas (S)
-- [ ] Script que ejecuta cada objetivo como `visor` y genera `documentacion/capturas/objetivo_XX.png`
+- [x] Script que ejecuta cada objetivo como `visor` y genera `documentacion/capturas/objetivo_XX.png`
 - **Verificación:** 20 imágenes legibles
 - **Depende de:** 5–9
 
