@@ -1,8 +1,6 @@
 -- Proyecto 1 - BD Hospitales de Occidente
 -- 06_cirugia.sql : agendamientos, preoperatorio, cirugia y su registro (datos FICTICIOS)
 
-set search_path to public;
-
 -- solicitudes al comite: una aprobada, una rechazada y una pendiente
 insert into agendamiento_quirurgico (id_agendamiento, id_paciente, id_medico_cirujano, id_tipo_cirugia, id_tipo_anestesia, caracter, resumen_clinico, tiempo_estimado_min, fecha_hora_solicitud, estado_solicitud, motivo_rechazo, id_quirofano_solicitado, fecha_hora_agendada) values
 (1, 5, 1006, 1, 1, 'urgente', 'Apendicitis aguda confirmada por ecografía.', 90, '2026-08-11 11:00-06', 'aprobada', null, 2, '2026-08-11 18:30-06'),

@@ -33,9 +33,9 @@ public class App {
                     f.hospital(), f.facturas(), f.totalFacturado(), f.totalCobrado(), f.pendienteDeCobro()));
 
             System.out.printf("%nObjetivo 18 - pacientes atendidos en las 4 unidades, del %s al %s%n", desde, hasta);
-            System.out.printf("%4s %-10s %-28s %5s %-10s%n", "Id", "Expediente", "Paciente", "Edad", "Sexo");
-            consultas.objetivo18(desde, hasta).forEach(f -> System.out.printf("%4d %-10s %-28s %5d %-10s%n",
-                    f.idPaciente(), f.numeroExpediente(), f.paciente(), f.edad(), f.sexo()));
+            System.out.printf("%4s %-10s %-16s %-20s %-10s%n", "Id", "Expediente", "Nombres", "Apellidos", "Sexo");
+            consultas.objetivo18(desde, hasta).forEach(f -> System.out.printf("%4d %-10s %-16s %-20s %-10s%n",
+                    f.idPaciente(), f.numeroExpediente(), f.nombres(), f.apellidos(), f.sexo()));
         }
     }
 }

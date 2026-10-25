@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict fgJUgfaaKt6lRmvmD5KqOd8LZq63L4BWBiYHjreDgEt8WWSgivO5MPFyRKwJssI
+\restrict wnBTvdIbKDAhjxaJK3WxPaeMzLBX5Plxv6If051ooxjt4JH5IqS4rlBk9SxSqbM
 
 -- Dumped from database version 18.6 (Debian 18.6-1.pgdg13+2)
 -- Dumped by pg_dump version 18.6 (Debian 18.6-1.pgdg13+2)
@@ -18,342 +18,6 @@ SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
-
---
--- Name: fn_agendamiento_aprobado(); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.fn_agendamiento_aprobado() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-begin
-    if (select estado_solicitud from agendamiento_quirurgico
-         where id_agendamiento = new.id_agendamiento) <> 'aprobada' then
-        raise exception 'El agendamiento % no está aprobado por el comité (%)', new.id_agendamiento, tg_table_name;
-    end if;
-    return new;
-end $$;
-
-
---
--- Name: fn_calificacion_consulta(); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.fn_calificacion_consulta() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-begin
-    if new.id_consulta is not null and new.id_medico is distinct from
-       (select ci.id_medico from consulta co join cita ci on ci.id_cita = co.id_cita
-         where co.id_consulta = new.id_consulta) then
-        raise exception 'La calificación de la consulta % debe ser para el médico que la atendió', new.id_consulta;
-    end if;
-    return new;
-end $$;
-
-
---
--- Name: fn_camilla_unidad(); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.fn_camilla_unidad() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-begin
-    if fn_tipo_unidad(new.id_unidad) not in ('Emergencias','Hospitalización') then
-        raise exception 'La camilla % debe pertenecer a Emergencias u Hospitalización', new.numero;
-    end if;
-    return new;
-end $$;
-
-
---
--- Name: fn_cirugia_personal_rol(); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.fn_cirugia_personal_rol() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-declare
-    v_tipo varchar;
-begin
-    select tipo_personal into v_tipo from rol_quirurgico where id_rol = new.id_rol;
-    if (v_tipo = 'medico' and new.id_medico is null) or (v_tipo = 'enfermero' and new.id_enfermero is null) then
-        raise exception 'El rol % lo debe cumplir un %', new.id_rol, v_tipo;
-    end if;
-    return new;
-end $$;
-
-
---
--- Name: fn_consulta_cita(); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.fn_consulta_cita() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-begin
-    if (select estado from cita where id_cita = new.id_cita) <> 'realizada' then
-        raise exception 'La cita % no está realizada; no puede tener consulta', new.id_cita;
-    end if;
-    return new;
-end $$;
-
-
---
--- Name: fn_edad(date, date); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.fn_edad(p_fecha_nacimiento date, p_fecha date DEFAULT CURRENT_DATE) RETURNS smallint
-    LANGUAGE sql IMMUTABLE
-    AS $$
-    select extract(year from age(p_fecha, p_fecha_nacimiento))::smallint;
-$$;
-
-
---
--- Name: fn_egreso_fecha(); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.fn_egreso_fecha() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-declare
-    v_ingreso timestamptz;
-begin
-    select fecha_hora_ingreso into v_ingreso from ingreso where id_ingreso = new.id_ingreso;
-    if new.fecha_hora_egreso < v_ingreso then
-        raise exception 'El egreso (%) es anterior al ingreso (%)', new.fecha_hora_egreso, v_ingreso;
-    end if;
-    return new;
-end $$;
-
-
---
--- Name: fn_hosp_insumo_ingreso(); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.fn_hosp_insumo_ingreso() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-begin
-    if fn_tipo_unidad((select id_unidad from ingreso where id_ingreso = new.id_ingreso)) <> 'Hospitalización' then
-        raise exception 'El ingreso % no es de Hospitalización', new.id_ingreso;
-    end if;
-    return new;
-end $$;
-
-
---
--- Name: fn_ingreso_consistencia(); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.fn_ingreso_consistencia() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-declare
-    v_tipo varchar;
-    v_turno turno_emergencia%rowtype;
-    v_inicio timestamptz;
-begin
-    v_tipo := fn_tipo_unidad(new.id_unidad);
-    if v_tipo = 'Consulta Externa' then
-        raise exception 'Consulta Externa no usa ficha de ingreso';
-    end if;
-    if new.id_servicio is not null
-       and (select id_unidad from servicio_atencion where id_servicio = new.id_servicio) <> new.id_unidad then
-        raise exception 'El servicio % no pertenece a la unidad del ingreso', new.id_servicio;
-    end if;
-    if new.id_camilla is not null
-       and (select id_unidad from camilla where id_camilla = new.id_camilla) <> new.id_unidad then
-        raise exception 'La camilla % no pertenece a la unidad del ingreso', new.id_camilla;
-    end if;
-    if new.id_quirofano is not null
-       and (select id_unidad from quirofano where id_quirofano = new.id_quirofano) <> new.id_unidad then
-        raise exception 'El quirófano % no pertenece a la unidad del ingreso', new.id_quirofano;
-    end if;
-    if (new.id_turno is not null) <> (v_tipo = 'Emergencias') then
-        raise exception 'Solo los ingresos a Emergencias llevan turno, prioridad y espera';
-    end if;
-    if new.id_turno is not null then
-        select * into v_turno from turno_emergencia where id_turno = new.id_turno;
-        -- las jornadas se definen en hora local de Guatemala
-        v_inicio := (v_turno.fecha + case v_turno.jornada when 'diurno' then time '07:00' else time '19:00' end)
-                    at time zone 'America/Guatemala';
-        if v_turno.id_unidad <> new.id_unidad
-           or new.fecha_hora_ingreso < v_inicio
-           or new.fecha_hora_ingreso >= v_inicio + interval '12 hours' then
-            raise exception 'El ingreso no ocurre dentro del turno % de esa unidad', new.id_turno;
-        end if;
-    end if;
-    return new;
-end $$;
-
-
---
--- Name: fn_paciente_nacimiento(); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.fn_paciente_nacimiento() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-begin
-    if new.fecha_nacimiento > current_date then
-        raise exception 'La fecha de nacimiento % está en el futuro', new.fecha_nacimiento;
-    end if;
-    return new;
-end $$;
-
-
---
--- Name: fn_pago_plan(); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.fn_pago_plan() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-declare
-    v_factura factura%rowtype;
-    v_pagado numeric;
-begin
-    select * into v_factura from factura where id_factura = new.id_factura;
-    if new.numero_cuota > v_factura.numero_cuotas then
-        raise exception 'La cuota % excede el plan de % cuotas de la factura %',
-            new.numero_cuota, v_factura.numero_cuotas, new.id_factura;
-    end if;
-    select coalesce(sum(monto), 0) into v_pagado
-      from pago where id_factura = new.id_factura and id_pago is distinct from new.id_pago;
-    if v_pagado + new.monto > v_factura.total then
-        raise exception 'Lo pagado (%) superaría el total de la factura (%)', v_pagado + new.monto, v_factura.total;
-    end if;
-    return new;
-end $$;
-
-
---
--- Name: fn_quirofano_unidad(); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.fn_quirofano_unidad() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-begin
-    if fn_tipo_unidad(new.id_unidad) <> 'Cirugía' then
-        raise exception 'El quirófano % debe pertenecer a la unidad de Cirugía', new.numero;
-    end if;
-    return new;
-end $$;
-
-
---
--- Name: fn_receta_proxima_cita(); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.fn_receta_proxima_cita() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-declare
-    v_fecha date;
-begin
-    select ci.fecha_hora::date into v_fecha
-      from consulta co join cita ci on ci.id_cita = co.id_cita
-     where co.id_consulta = new.id_consulta;
-    if new.fecha_proxima_cita <= v_fecha then
-        raise exception 'La próxima cita (%) debe ser posterior a la consulta (%)', new.fecha_proxima_cita, v_fecha;
-    end if;
-    return new;
-end $$;
-
-
---
--- Name: fn_registro_resultado(); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.fn_registro_resultado() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-declare
-    v_tipo varchar;
-begin
-    select tipo_evaluacion into v_tipo from aspecto_quirurgico where id_aspecto = new.id_aspecto;
-    if (v_tipo = 'exito_falla' and new.resultado not in ('exito','falla'))
-       or (v_tipo = 'aceptabilidad' and new.resultado not in ('aceptable','medianamente_aceptable','no_aceptable')) then
-        raise exception 'El resultado "%" no es válido para un aspecto evaluado por %', new.resultado, v_tipo;
-    end if;
-    return new;
-end $$;
-
-
---
--- Name: fn_tipo_unidad(integer); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.fn_tipo_unidad(p_id_unidad integer) RETURNS character varying
-    LANGUAGE sql STABLE
-    AS $$
-    select tipo_unidad from unidad_medica where id_unidad = p_id_unidad;
-$$;
-
-
---
--- Name: fn_traslado_origen(); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.fn_traslado_origen() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-declare
-    v_origen integer;
-begin
-    if new.id_ingreso is not null then
-        select id_unidad into v_origen from ingreso where id_ingreso = new.id_ingreso;
-    else
-        select u.id_unidad into v_origen
-          from consulta co
-          join cita ci on ci.id_cita = co.id_cita
-          join medico me on me.id_medico = ci.id_medico
-          join unidad_medica u on u.id_hospital = me.id_hospital and u.tipo_unidad = 'Consulta Externa'
-         where co.id_consulta = new.id_consulta;
-    end if;
-    if new.id_unidad_origen <> v_origen then
-        raise exception 'La unidad de origen % no coincide con la de la ficha de origen (%)', new.id_unidad_origen, v_origen;
-    end if;
-    return new;
-end $$;
-
-
---
--- Name: fn_turno_medico_hospital(); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.fn_turno_medico_hospital() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-begin
-    if (select id_hospital from medico where id_medico = new.id_medico)
-       <> (select u.id_hospital from turno_emergencia t
-             join unidad_medica u on u.id_unidad = t.id_unidad
-            where t.id_turno = new.id_turno) then
-        raise exception 'El médico % no pertenece al hospital del turno %', new.id_medico, new.id_turno;
-    end if;
-    return new;
-end $$;
-
-
---
--- Name: fn_turno_unidad(); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.fn_turno_unidad() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-begin
-    if fn_tipo_unidad(new.id_unidad) <> 'Emergencias' then
-        raise exception 'El turno debe pertenecer a la unidad de Emergencias';
-    end if;
-    return new;
-end $$;
-
 
 SET default_tablespace = '';
 
@@ -387,62 +51,6 @@ CREATE TABLE public.agendamiento_quirurgico (
 
 
 --
--- Name: TABLE agendamiento_quirurgico; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.agendamiento_quirurgico IS 'Solicitud de cirugía que el cirujano envía al comité médico.';
-
-
---
--- Name: COLUMN agendamiento_quirurgico.caracter; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.agendamiento_quirurgico.caracter IS 'urgente o programado.';
-
-
---
--- Name: COLUMN agendamiento_quirurgico.resumen_clinico; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.agendamiento_quirurgico.resumen_clinico IS 'Resumen de la historia clínica que justifica la cirugía.';
-
-
---
--- Name: COLUMN agendamiento_quirurgico.tiempo_estimado_min; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.agendamiento_quirurgico.tiempo_estimado_min IS 'Tiempo estimado de la intervención en minutos.';
-
-
---
--- Name: COLUMN agendamiento_quirurgico.fecha_hora_solicitud; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.agendamiento_quirurgico.fecha_hora_solicitud IS 'Fecha y hora en que se envió la solicitud.';
-
-
---
--- Name: COLUMN agendamiento_quirurgico.estado_solicitud; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.agendamiento_quirurgico.estado_solicitud IS 'Decisión del comité: pendiente, aprobada o rechazada.';
-
-
---
--- Name: COLUMN agendamiento_quirurgico.motivo_rechazo; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.agendamiento_quirurgico.motivo_rechazo IS 'Razones del rechazo (base de cirugías rechazadas).';
-
-
---
--- Name: COLUMN agendamiento_quirurgico.fecha_hora_agendada; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.agendamiento_quirurgico.fecha_hora_agendada IS 'Fecha y hora asignadas al aprobarse.';
-
-
---
 -- Name: agendamiento_quirurgico_id_agendamiento_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -469,41 +77,6 @@ CREATE TABLE public.aspecto_quirurgico (
     CONSTRAINT ck_aspecto_etapa CHECK (((etapa)::text = ANY ((ARRAY['preoperatorio'::character varying, 'intraoperatorio'::character varying, 'postoperatorio'::character varying])::text[]))),
     CONSTRAINT ck_aspecto_evaluacion CHECK (((tipo_evaluacion)::text = ANY ((ARRAY['exito_falla'::character varying, 'aceptabilidad'::character varying])::text[])))
 );
-
-
---
--- Name: TABLE aspecto_quirurgico; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.aspecto_quirurgico IS 'Aspectos que el enfermero verifica en cada etapa de la cirugía.';
-
-
---
--- Name: COLUMN aspecto_quirurgico.etapa; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.aspecto_quirurgico.etapa IS 'preoperatorio, intraoperatorio o postoperatorio.';
-
-
---
--- Name: COLUMN aspecto_quirurgico.seccion; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.aspecto_quirurgico.seccion IS 'Sección de la etapa (Planificación, Entrada, Pausa quirúrgica...).';
-
-
---
--- Name: COLUMN aspecto_quirurgico.nombre; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.aspecto_quirurgico.nombre IS 'Aspecto que se verifica.';
-
-
---
--- Name: COLUMN aspecto_quirurgico.tipo_evaluacion; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.aspecto_quirurgico.tipo_evaluacion IS 'exito_falla o aceptabilidad.';
 
 
 --
@@ -541,34 +114,6 @@ CREATE TABLE public.calificacion (
 
 
 --
--- Name: TABLE calificacion; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.calificacion IS 'Calificación de la calidad del servicio de un hospital, médico, enfermero o encargado.';
-
-
---
--- Name: COLUMN calificacion.fecha; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.calificacion.fecha IS 'Fecha de la calificación.';
-
-
---
--- Name: COLUMN calificacion.puntuacion; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.calificacion.puntuacion IS 'Puntuación de 1 (peor) a 5 (mejor).';
-
-
---
--- Name: COLUMN calificacion.comentario; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.calificacion.comentario IS 'Comentario opcional.';
-
-
---
 -- Name: calificacion_id_calificacion_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -593,27 +138,6 @@ CREATE TABLE public.camilla (
     disponible boolean DEFAULT true NOT NULL,
     CONSTRAINT ck_camilla_numero CHECK ((numero > 0))
 );
-
-
---
--- Name: TABLE camilla; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.camilla IS 'Camillas de las unidades de Emergencias y Hospitalización.';
-
-
---
--- Name: COLUMN camilla.numero; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.camilla.numero IS 'Número de la camilla dentro de su unidad.';
-
-
---
--- Name: COLUMN camilla.disponible; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.camilla.disponible IS 'Indica si la camilla está libre.';
 
 
 --
@@ -643,27 +167,6 @@ CREATE TABLE public.chequeo_preanestesico (
     id_medico_anestesista integer NOT NULL,
     CONSTRAINT ck_chequeo_asa CHECK (((clasificacion_asa)::text = ANY ((ARRAY['I'::character varying, 'II'::character varying, 'III'::character varying, 'IV'::character varying, 'V'::character varying, 'VI'::character varying])::text[])))
 );
-
-
---
--- Name: TABLE chequeo_preanestesico; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.chequeo_preanestesico IS 'Evaluación del riesgo anestésico (ASA) y plan de anestesia.';
-
-
---
--- Name: COLUMN chequeo_preanestesico.clasificacion_asa; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.chequeo_preanestesico.clasificacion_asa IS 'Clasificación ASA del riesgo anestésico (I a VI).';
-
-
---
--- Name: COLUMN chequeo_preanestesico.plan_anestesia; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.chequeo_preanestesico.plan_anestesia IS 'Plan de anestesia.';
 
 
 --
@@ -701,41 +204,6 @@ CREATE TABLE public.cirugia (
 
 
 --
--- Name: TABLE cirugia; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.cirugia IS 'Cirugía realizada a partir de un agendamiento aprobado.';
-
-
---
--- Name: COLUMN cirugia.fecha_hora_inicio; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.cirugia.fecha_hora_inicio IS 'Inicio de la cirugía.';
-
-
---
--- Name: COLUMN cirugia.fecha_hora_fin; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.cirugia.fecha_hora_fin IS 'Fin de la cirugía.';
-
-
---
--- Name: COLUMN cirugia.estado; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.cirugia.estado IS 'preoperatorio, intraoperatorio, postoperatorio o finalizada.';
-
-
---
--- Name: COLUMN cirugia.condicion_evolucion; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.cirugia.condicion_evolucion IS 'sin_complicaciones, complicaciones o complicaciones_graves.';
-
-
---
 -- Name: cirugia_id_cirugia_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -764,27 +232,6 @@ CREATE TABLE public.cirugia_insumo (
 
 
 --
--- Name: TABLE cirugia_insumo; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.cirugia_insumo IS 'Insumos usados en la cirugía.';
-
-
---
--- Name: COLUMN cirugia_insumo.cantidad; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.cirugia_insumo.cantidad IS 'Cantidad usada.';
-
-
---
--- Name: COLUMN cirugia_insumo.costo_unitario; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.cirugia_insumo.costo_unitario IS 'Costo por unidad al momento de usarlo.';
-
-
---
 -- Name: cirugia_personal; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -796,13 +243,6 @@ CREATE TABLE public.cirugia_personal (
     id_rol integer NOT NULL,
     CONSTRAINT ck_cirugia_personal CHECK ((num_nonnulls(id_medico, id_enfermero) = 1))
 );
-
-
---
--- Name: TABLE cirugia_personal; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.cirugia_personal IS 'Médicos y enfermeros que participan en la cirugía.';
 
 
 --
@@ -844,76 +284,6 @@ CREATE TABLE public.cita (
 
 
 --
--- Name: TABLE cita; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.cita IS 'Citas programadas de consulta externa.';
-
-
---
--- Name: COLUMN cita.fecha_hora; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.cita.fecha_hora IS 'Fecha y hora de la cita.';
-
-
---
--- Name: COLUMN cita.numero_clinica; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.cita.numero_clinica IS 'Clínica o consultorio donde se atiende.';
-
-
---
--- Name: COLUMN cita.medio_asignacion; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.cita.medio_asignacion IS 'Medio por el que se asignó: teléfono, correo, recepción general o del médico.';
-
-
---
--- Name: COLUMN cita.estado; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.cita.estado IS 'programada, realizada, reprogramada o cancelada.';
-
-
---
--- Name: COLUMN cita.es_reconsulta; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.cita.es_reconsulta IS 'Indica si es reconsulta (cuesta 75% de la primera consulta).';
-
-
---
--- Name: COLUMN cita.es_referido; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.cita.es_referido IS 'Indica si el paciente fue referido por una institución (cuesta 80%).';
-
-
---
--- Name: COLUMN cita.cancelada_sin_aviso; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.cita.cancelada_sin_aviso IS 'Indica si se canceló sin avisar (sobrecargo de 10% en la siguiente cita).';
-
-
---
--- Name: COLUMN cita.costo_base; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.cita.costo_base IS 'Costo de primera consulta del médico al momento de agendar.';
-
-
---
--- Name: COLUMN cita.costo_final; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.cita.costo_final IS 'Costo cobrado después de aplicar las reglas de descuento o sobrecargo.';
-
-
---
 -- Name: cita_id_cita_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -949,76 +319,6 @@ CREATE TABLE public.consentimiento_informado (
 
 
 --
--- Name: TABLE consentimiento_informado; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.consentimiento_informado IS 'Consentimiento informado firmado para la cirugía.';
-
-
---
--- Name: COLUMN consentimiento_informado.procedimiento_nombre; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.consentimiento_informado.procedimiento_nombre IS 'Nombre específico del procedimiento.';
-
-
---
--- Name: COLUMN consentimiento_informado.procedimiento_objetivo; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.consentimiento_informado.procedimiento_objetivo IS 'Objetivo del procedimiento.';
-
-
---
--- Name: COLUMN consentimiento_informado.procedimiento_caracteristicas; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.consentimiento_informado.procedimiento_caracteristicas IS 'Características del procedimiento.';
-
-
---
--- Name: COLUMN consentimiento_informado.procedimiento_riesgos; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.consentimiento_informado.procedimiento_riesgos IS 'Posibles riesgos del procedimiento.';
-
-
---
--- Name: COLUMN consentimiento_informado.medico_firmo; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.consentimiento_informado.medico_firmo IS 'Indica si el médico firmó.';
-
-
---
--- Name: COLUMN consentimiento_informado.firmante_nombre; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.consentimiento_informado.firmante_nombre IS 'Nombre de quien firma por el paciente.';
-
-
---
--- Name: COLUMN consentimiento_informado.firmante_relacion; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.consentimiento_informado.firmante_relacion IS 'paciente, familiar, tutor o representante_legal.';
-
-
---
--- Name: COLUMN consentimiento_informado.firmante_firmo; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.consentimiento_informado.firmante_firmo IS 'Indica si el paciente o su representante firmó.';
-
-
---
--- Name: COLUMN consentimiento_informado.fecha_obtencion; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.consentimiento_informado.fecha_obtencion IS 'Fecha en que se obtuvo el consentimiento.';
-
-
---
 -- Name: consentimiento_informado_id_consentimiento_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -1046,27 +346,6 @@ CREATE TABLE public.consulta (
 
 
 --
--- Name: TABLE consulta; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.consulta IS 'Consulta realizada en una cita.';
-
-
---
--- Name: COLUMN consulta.otros_datos; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.consulta.otros_datos IS 'Otros datos de interés clínico.';
-
-
---
--- Name: COLUMN consulta.notas_observaciones; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.consulta.notas_observaciones IS 'Notas u observaciones del médico.';
-
-
---
 -- Name: consulta_id_consulta_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -1088,20 +367,6 @@ CREATE TABLE public.departamento (
     id_departamento integer NOT NULL,
     nombre character varying(80) NOT NULL
 );
-
-
---
--- Name: TABLE departamento; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.departamento IS 'Departamentos de Guatemala.';
-
-
---
--- Name: COLUMN departamento.nombre; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.departamento.nombre IS 'Nombre del departamento.';
 
 
 --
@@ -1128,27 +393,6 @@ CREATE TABLE public.diagnostico (
     descripcion character varying(200) NOT NULL,
     CONSTRAINT ck_diagnostico_codigo CHECK (((codigo_cie10)::text ~ '^[A-Z][0-9]{2}(\.[0-9]{1,2})?$'::text))
 );
-
-
---
--- Name: TABLE diagnostico; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.diagnostico IS 'Diagnósticos de la Clasificación Internacional de Enfermedades (CIE-10).';
-
-
---
--- Name: COLUMN diagnostico.codigo_cie10; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.diagnostico.codigo_cie10 IS 'Código CIE-10 del diagnóstico.';
-
-
---
--- Name: COLUMN diagnostico.descripcion; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.diagnostico.descripcion IS 'Descripción oficial del diagnóstico.';
 
 
 --
@@ -1179,27 +423,6 @@ CREATE TABLE public.documentacion_etapa (
 
 
 --
--- Name: TABLE documentacion_etapa; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.documentacion_etapa IS 'Documentación de cada etapa de la cirugía enviada a secretaría.';
-
-
---
--- Name: COLUMN documentacion_etapa.etapa; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.documentacion_etapa.etapa IS 'Etapa documentada.';
-
-
---
--- Name: COLUMN documentacion_etapa.fecha_envio; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.documentacion_etapa.fecha_envio IS 'Fecha de envío a secretaría.';
-
-
---
 -- Name: egreso; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1221,62 +444,6 @@ CREATE TABLE public.egreso (
 
 
 --
--- Name: TABLE egreso; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.egreso IS 'Ficha de egreso que cierra un ingreso.';
-
-
---
--- Name: COLUMN egreso.fecha_hora_egreso; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.egreso.fecha_hora_egreso IS 'Fecha y hora del egreso.';
-
-
---
--- Name: COLUMN egreso.motivo_egreso; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.egreso.motivo_egreso IS 'Motivo del egreso.';
-
-
---
--- Name: COLUMN egreso.codigo_egreso; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.egreso.codigo_egreso IS 'Condición de salida: vivo, muerto, embarazo o parto.';
-
-
---
--- Name: COLUMN egreso.sin_consentimiento; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.egreso.sin_consentimiento IS 'Indica si el paciente salió sin consentimiento médico.';
-
-
---
--- Name: COLUMN egreso.motivo_sin_consentimiento; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.egreso.motivo_sin_consentimiento IS 'Motivo del egreso sin consentimiento.';
-
-
---
--- Name: COLUMN egreso.codigo_traslado; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.egreso.codigo_traslado IS 'Código de traslado, si el egreso fue por traslado.';
-
-
---
--- Name: COLUMN egreso.referido_otro_hospital; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.egreso.referido_otro_hospital IS 'Indica si fue referido a otro hospital o establecimiento.';
-
-
---
 -- Name: egreso_diagnostico; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1284,13 +451,6 @@ CREATE TABLE public.egreso_diagnostico (
     id_egreso integer NOT NULL,
     id_diagnostico integer NOT NULL
 );
-
-
---
--- Name: TABLE egreso_diagnostico; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.egreso_diagnostico IS 'Diagnósticos secundarios de cada egreso.';
 
 
 --
@@ -1326,48 +486,6 @@ CREATE TABLE public.encargado (
 
 
 --
--- Name: TABLE encargado; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.encargado IS 'Personas responsables de un paciente.';
-
-
---
--- Name: COLUMN encargado.nombres; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.encargado.nombres IS 'Nombres del encargado.';
-
-
---
--- Name: COLUMN encargado.apellidos; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.encargado.apellidos IS 'Apellidos del encargado.';
-
-
---
--- Name: COLUMN encargado.dpi; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.encargado.dpi IS 'CUI de 13 dígitos.';
-
-
---
--- Name: COLUMN encargado.telefono; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.encargado.telefono IS 'Teléfono de contacto.';
-
-
---
--- Name: COLUMN encargado.area; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.encargado.area IS 'Área de residencia: Urbana o Rural.';
-
-
---
 -- Name: encargado_id_encargado_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -1397,48 +515,6 @@ CREATE TABLE public.enfermero (
     CONSTRAINT ck_enfermero_telefono CHECK (((telefono)::text ~ '^[0-9]{4}-?[0-9]{4}$'::text)),
     CONSTRAINT ck_enfermero_tipo CHECK (((tipo)::text = ANY ((ARRAY['registrado'::character varying, 'practicante'::character varying])::text[])))
 );
-
-
---
--- Name: TABLE enfermero; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.enfermero IS 'Enfermeros registrados y practicantes de enfermería.';
-
-
---
--- Name: COLUMN enfermero.nombres; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.enfermero.nombres IS 'Nombres del enfermero.';
-
-
---
--- Name: COLUMN enfermero.apellidos; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.enfermero.apellidos IS 'Apellidos del enfermero.';
-
-
---
--- Name: COLUMN enfermero.dpi; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.enfermero.dpi IS 'Documento Personal de Identificación (CUI de 13 dígitos).';
-
-
---
--- Name: COLUMN enfermero.telefono; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.enfermero.telefono IS 'Teléfono de contacto.';
-
-
---
--- Name: COLUMN enfermero.tipo; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.enfermero.tipo IS 'registrado o practicante.';
 
 
 --
@@ -1473,48 +549,6 @@ CREATE TABLE public.equipo (
 
 
 --
--- Name: TABLE equipo; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.equipo IS 'Equipos médicos y quirúrgicos.';
-
-
---
--- Name: COLUMN equipo.nombre; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.equipo.nombre IS 'Nombre del equipo.';
-
-
---
--- Name: COLUMN equipo.descripcion; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.equipo.descripcion IS 'Descripción del equipo.';
-
-
---
--- Name: COLUMN equipo.tipo; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.equipo.tipo IS 'medico, quirurgico u otro.';
-
-
---
--- Name: COLUMN equipo.funcion; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.equipo.funcion IS 'exploracion, diagnostico, tratamiento, rehabilitacion u otro.';
-
-
---
--- Name: COLUMN equipo.estado; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.equipo.estado IS 'disponible, en_uso o en_mantenimiento.';
-
-
---
 -- Name: equipo_id_equipo_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -1541,27 +575,6 @@ CREATE TABLE public.especialidad (
 
 
 --
--- Name: TABLE especialidad; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.especialidad IS 'Especialidades médicas clínicas y quirúrgicas.';
-
-
---
--- Name: COLUMN especialidad.nombre; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.especialidad.nombre IS 'Nombre de la especialidad.';
-
-
---
--- Name: COLUMN especialidad.tipo; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.especialidad.tipo IS 'clinica (consulta) o quirurgica (cirugía).';
-
-
---
 -- Name: especialidad_id_especialidad_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -1583,20 +596,6 @@ CREATE TABLE public.estado_civil (
     id_estado_civil integer NOT NULL,
     nombre character varying(20) NOT NULL
 );
-
-
---
--- Name: TABLE estado_civil; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.estado_civil IS 'Catálogo de estados civiles.';
-
-
---
--- Name: COLUMN estado_civil.nombre; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.estado_civil.nombre IS 'Estado civil.';
 
 
 --
@@ -1631,41 +630,6 @@ CREATE TABLE public.factura (
     CONSTRAINT ck_factura_origen CHECK ((num_nonnulls(id_cita, id_ingreso, id_cirugia) = 1)),
     CONSTRAINT ck_factura_total CHECK ((total >= (0)::numeric))
 );
-
-
---
--- Name: TABLE factura; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.factura IS 'Factura emitida al terminar una consulta, emergencia, hospitalización o cirugía.';
-
-
---
--- Name: COLUMN factura.fecha_emision; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.factura.fecha_emision IS 'Fecha y hora de emisión.';
-
-
---
--- Name: COLUMN factura.descripcion; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.factura.descripcion IS 'Descripción breve de los servicios facturados.';
-
-
---
--- Name: COLUMN factura.total; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.factura.total IS 'Monto total en quetzales.';
-
-
---
--- Name: COLUMN factura.numero_cuotas; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.factura.numero_cuotas IS 'Número de cuotas mensuales del plan de pago (1 a 12).';
 
 
 --
@@ -1711,125 +675,6 @@ CREATE TABLE public.historia_clinica (
 
 
 --
--- Name: TABLE historia_clinica; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.historia_clinica IS 'Interrogatorio y exploración física del paciente antes de la cirugía.';
-
-
---
--- Name: COLUMN historia_clinica.fecha; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.historia_clinica.fecha IS 'Fecha de elaboración.';
-
-
---
--- Name: COLUMN historia_clinica.fuente_interrogatorio; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.historia_clinica.fuente_interrogatorio IS 'directo (del paciente) o indirecto (de un familiar o amigo).';
-
-
---
--- Name: COLUMN historia_clinica.religion; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.historia_clinica.religion IS 'Religión del paciente.';
-
-
---
--- Name: COLUMN historia_clinica.ocupacion; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.historia_clinica.ocupacion IS 'Ocupación del paciente.';
-
-
---
--- Name: COLUMN historia_clinica.lugar_nacimiento; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.historia_clinica.lugar_nacimiento IS 'Lugar de nacimiento.';
-
-
---
--- Name: COLUMN historia_clinica.lugar_residencia; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.historia_clinica.lugar_residencia IS 'Lugar de residencia.';
-
-
---
--- Name: COLUMN historia_clinica.antecedentes_heredofamiliares; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.historia_clinica.antecedentes_heredofamiliares IS 'Antecedentes heredofamiliares.';
-
-
---
--- Name: COLUMN historia_clinica.antecedentes_personales_no_patologicos; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.historia_clinica.antecedentes_personales_no_patologicos IS 'Antecedentes personales no patológicos.';
-
-
---
--- Name: COLUMN historia_clinica.antecedentes_patologicos; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.historia_clinica.antecedentes_patologicos IS 'Antecedentes patológicos.';
-
-
---
--- Name: COLUMN historia_clinica.padecimiento_actual; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.historia_clinica.padecimiento_actual IS 'Padecimiento actual.';
-
-
---
--- Name: COLUMN historia_clinica.interrogatorio_aparatos_sistemas; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.historia_clinica.interrogatorio_aparatos_sistemas IS 'Interrogatorio por aparatos y sistemas.';
-
-
---
--- Name: COLUMN historia_clinica.sintomas_generales_terapeutica; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.historia_clinica.sintomas_generales_terapeutica IS 'Síntomas generales y terapéutica empleada.';
-
-
---
--- Name: COLUMN historia_clinica.estudios_previos; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.historia_clinica.estudios_previos IS 'Estudios previos.';
-
-
---
--- Name: COLUMN historia_clinica.signos_vitales; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.historia_clinica.signos_vitales IS 'Signos vitales.';
-
-
---
--- Name: COLUMN historia_clinica.exploracion_general; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.historia_clinica.exploracion_general IS 'Exploración general.';
-
-
---
--- Name: COLUMN historia_clinica.exploracion_sistematizada; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.historia_clinica.exploracion_sistematizada IS 'Exploración de cabeza, cuello, tórax, abdomen, extremidades, columna y cavidades.';
-
-
---
 -- Name: historia_clinica_id_historia_clinica_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -1854,34 +699,6 @@ CREATE TABLE public.hospital (
     direccion character varying(250) NOT NULL,
     id_municipio integer NOT NULL
 );
-
-
---
--- Name: TABLE hospital; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.hospital IS 'Hospitales de la cadena Hospitales de Occidente.';
-
-
---
--- Name: COLUMN hospital.nombre; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.hospital.nombre IS 'Nombre del hospital.';
-
-
---
--- Name: COLUMN hospital.informacion_especifica; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.hospital.informacion_especifica IS 'Información específica del hospital (nivel, capacidad, especialización).';
-
-
---
--- Name: COLUMN hospital.direccion; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.hospital.direccion IS 'Dirección del hospital.';
 
 
 --
@@ -1913,27 +730,6 @@ CREATE TABLE public.hospitalizacion_insumo (
 
 
 --
--- Name: TABLE hospitalizacion_insumo; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.hospitalizacion_insumo IS 'Insumos usados durante un internamiento.';
-
-
---
--- Name: COLUMN hospitalizacion_insumo.cantidad; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.hospitalizacion_insumo.cantidad IS 'Cantidad usada durante el internamiento.';
-
-
---
--- Name: COLUMN hospitalizacion_insumo.costo_unitario; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.hospitalizacion_insumo.costo_unitario IS 'Costo por unidad al momento de usarlo.';
-
-
---
 -- Name: ingreso; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1956,48 +752,6 @@ CREATE TABLE public.ingreso (
     CONSTRAINT ck_ingreso_triage CHECK ((num_nulls(id_turno, prioridad_triage, turnos_espera) = ANY (ARRAY[0, 3]))),
     CONSTRAINT ck_ingreso_ubicacion CHECK (((id_camilla IS NULL) OR (id_quirofano IS NULL)))
 );
-
-
---
--- Name: TABLE ingreso; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.ingreso IS 'Ficha de ingreso a Emergencias, Cirugía u Hospitalización.';
-
-
---
--- Name: COLUMN ingreso.fecha_hora_ingreso; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.ingreso.fecha_hora_ingreso IS 'Fecha y hora del ingreso.';
-
-
---
--- Name: COLUMN ingreso.motivo_ingreso; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.ingreso.motivo_ingreso IS 'Motivo por el que ingresa el paciente.';
-
-
---
--- Name: COLUMN ingreso.diagnostico_presuntivo; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.ingreso.diagnostico_presuntivo IS 'Diagnóstico presuntivo de ingreso.';
-
-
---
--- Name: COLUMN ingreso.prioridad_triage; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.ingreso.prioridad_triage IS 'Prioridad de atención en emergencias: 1 la más urgente, 5 la menos.';
-
-
---
--- Name: COLUMN ingreso.turnos_espera; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.ingreso.turnos_espera IS 'Turnos que esperó por falta de camilla libre (solo emergencias).';
 
 
 --
@@ -2024,27 +778,6 @@ CREATE TABLE public.institucion_externa (
     direccion character varying(250) NOT NULL,
     id_municipio integer NOT NULL
 );
-
-
---
--- Name: TABLE institucion_externa; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.institucion_externa IS 'Hospitales y establecimientos fuera de la cadena que reciben traslados.';
-
-
---
--- Name: COLUMN institucion_externa.nombre; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.institucion_externa.nombre IS 'Nombre de la institución.';
-
-
---
--- Name: COLUMN institucion_externa.direccion; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.institucion_externa.direccion IS 'Dirección de la institución.';
 
 
 --
@@ -2076,48 +809,6 @@ CREATE TABLE public.instrumento (
     CONSTRAINT ck_instrumento_funcion CHECK (((funcion)::text = ANY ((ARRAY['corte'::character varying, 'contencion'::character varying, 'hemostatica'::character varying, 'retractor'::character varying, 'accesorio'::character varying, 'implante'::character varying, 'otro'::character varying])::text[]))),
     CONSTRAINT ck_instrumento_tipo CHECK (((tipo)::text = ANY ((ARRAY['medico'::character varying, 'quirurgico'::character varying, 'otro'::character varying])::text[])))
 );
-
-
---
--- Name: TABLE instrumento; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.instrumento IS 'Instrumental médico y quirúrgico.';
-
-
---
--- Name: COLUMN instrumento.nombre; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.instrumento.nombre IS 'Nombre del instrumento.';
-
-
---
--- Name: COLUMN instrumento.descripcion; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.instrumento.descripcion IS 'Descripción del instrumento.';
-
-
---
--- Name: COLUMN instrumento.tipo; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.instrumento.tipo IS 'medico, quirurgico u otro.';
-
-
---
--- Name: COLUMN instrumento.funcion; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.instrumento.funcion IS 'corte, contencion, hemostatica, retractor, accesorio, implante u otro.';
-
-
---
--- Name: COLUMN instrumento.estado; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.instrumento.estado IS 'disponible, en_uso o en_mantenimiento.';
 
 
 --
@@ -2155,69 +846,6 @@ CREATE TABLE public.insumo (
 
 
 --
--- Name: TABLE insumo; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.insumo IS 'Insumos médicos y quirúrgicos con su inventario.';
-
-
---
--- Name: COLUMN insumo.nombre; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.insumo.nombre IS 'Nombre del insumo.';
-
-
---
--- Name: COLUMN insumo.descripcion; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.insumo.descripcion IS 'Descripción del insumo.';
-
-
---
--- Name: COLUMN insumo.material; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.insumo.material IS 'Material del que está hecho.';
-
-
---
--- Name: COLUMN insumo.tipo; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.insumo.tipo IS 'medico, quirurgico u otro.';
-
-
---
--- Name: COLUMN insumo.unidad_medida; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.insumo.unidad_medida IS 'Unidad en que se despacha (caja, unidad, bolsa...).';
-
-
---
--- Name: COLUMN insumo.costo_unitario; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.insumo.costo_unitario IS 'Costo actual por unidad.';
-
-
---
--- Name: COLUMN insumo.stock_minimo; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.insumo.stock_minimo IS 'Existencia mínima antes de reabastecer.';
-
-
---
--- Name: COLUMN insumo.stock_actual; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.insumo.stock_actual IS 'Existencia actual en inventario.';
-
-
---
 -- Name: insumo_id_insumo_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -2242,34 +870,6 @@ CREATE TABLE public.medicamento (
     forma_farmaceutica character varying(12) NOT NULL,
     CONSTRAINT ck_medicamento_forma CHECK (((forma_farmaceutica)::text = ANY ((ARRAY['tableta'::character varying, 'capsula'::character varying, 'jarabe'::character varying, 'suspension'::character varying, 'inyectable'::character varying, 'crema'::character varying, 'gotas'::character varying, 'inhalador'::character varying])::text[])))
 );
-
-
---
--- Name: TABLE medicamento; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.medicamento IS 'Medicamentos que se pueden recetar.';
-
-
---
--- Name: COLUMN medicamento.nombre_generico; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.medicamento.nombre_generico IS 'Nombre genérico (principio activo).';
-
-
---
--- Name: COLUMN medicamento.concentracion; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.medicamento.concentracion IS 'Concentración por unidad (ej. 50 mg).';
-
-
---
--- Name: COLUMN medicamento.forma_farmaceutica; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.medicamento.forma_farmaceutica IS 'Presentación: tableta, cápsula, jarabe, inyectable...';
 
 
 --
@@ -2316,76 +916,6 @@ CREATE TABLE public.medico (
 
 
 --
--- Name: TABLE medico; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.medico IS 'Médicos de la cadena; los externos solo llegan a operar.';
-
-
---
--- Name: COLUMN medico.nombres; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.medico.nombres IS 'Nombres del médico.';
-
-
---
--- Name: COLUMN medico.apellidos; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.medico.apellidos IS 'Apellidos del médico.';
-
-
---
--- Name: COLUMN medico.dpi; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.medico.dpi IS 'Documento Personal de Identificación (CUI de 13 dígitos).';
-
-
---
--- Name: COLUMN medico.telefono; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.medico.telefono IS 'Teléfono de contacto.';
-
-
---
--- Name: COLUMN medico.area; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.medico.area IS 'Área de residencia: Urbana o Rural.';
-
-
---
--- Name: COLUMN medico.tipo_medico; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.medico.tipo_medico IS 'Modalidad: general, especialista, residente, interno o externo.';
-
-
---
--- Name: COLUMN medico.costo_primera_consulta; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.medico.costo_primera_consulta IS 'Costo de la primera consulta; base para reconsultas y referidos.';
-
-
---
--- Name: COLUMN medico.horario_inicio; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.medico.horario_inicio IS 'Inicio del horario de consulta externa (turno matutino).';
-
-
---
--- Name: COLUMN medico.horario_fin; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.medico.horario_fin IS 'Fin del horario de consulta externa.';
-
-
---
 -- Name: medico_id_medico_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -2407,20 +937,6 @@ CREATE TABLE public.metodo_pago (
     id_metodo_pago integer NOT NULL,
     nombre character varying(30) NOT NULL
 );
-
-
---
--- Name: TABLE metodo_pago; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.metodo_pago IS 'Métodos de pago aceptados.';
-
-
---
--- Name: COLUMN metodo_pago.nombre; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.metodo_pago.nombre IS 'Método de pago.';
 
 
 --
@@ -2446,20 +962,6 @@ CREATE TABLE public.municipio (
     id_departamento integer NOT NULL,
     nombre character varying(80) NOT NULL
 );
-
-
---
--- Name: TABLE municipio; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.municipio IS 'Municipios de cada departamento.';
-
-
---
--- Name: COLUMN municipio.nombre; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.municipio.nombre IS 'Nombre del municipio.';
 
 
 --
@@ -2502,76 +1004,6 @@ CREATE TABLE public.paciente (
 
 
 --
--- Name: TABLE paciente; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.paciente IS 'Pacientes atendidos en la red.';
-
-
---
--- Name: COLUMN paciente.numero_expediente; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.paciente.numero_expediente IS 'Número de expediente clínico del paciente.';
-
-
---
--- Name: COLUMN paciente.nombres; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.paciente.nombres IS 'Nombres del paciente.';
-
-
---
--- Name: COLUMN paciente.apellidos; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.paciente.apellidos IS 'Apellidos del paciente.';
-
-
---
--- Name: COLUMN paciente.fecha_nacimiento; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.paciente.fecha_nacimiento IS 'Fecha de nacimiento; la edad se calcula con fn_edad.';
-
-
---
--- Name: COLUMN paciente.sexo; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.paciente.sexo IS 'Masculino o Femenino.';
-
-
---
--- Name: COLUMN paciente.dpi; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.paciente.dpi IS 'CUI de 13 dígitos; opcional para menores de edad.';
-
-
---
--- Name: COLUMN paciente.telefono; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.paciente.telefono IS 'Teléfono de contacto.';
-
-
---
--- Name: COLUMN paciente.area; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.paciente.area IS 'Área de residencia: Urbana o Rural.';
-
-
---
--- Name: COLUMN paciente.numero_seguro_social; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.paciente.numero_seguro_social IS 'Número de afiliación al seguro social, si tiene.';
-
-
---
 -- Name: paciente_encargado; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2580,13 +1012,6 @@ CREATE TABLE public.paciente_encargado (
     id_encargado integer NOT NULL,
     id_parentesco integer NOT NULL
 );
-
-
---
--- Name: TABLE paciente_encargado; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.paciente_encargado IS 'Encargados de cada paciente y su parentesco.';
 
 
 --
@@ -2620,34 +1045,6 @@ CREATE TABLE public.pago (
 
 
 --
--- Name: TABLE pago; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.pago IS 'Pago de una cuota de la factura.';
-
-
---
--- Name: COLUMN pago.numero_cuota; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.pago.numero_cuota IS 'Número de cuota que se paga.';
-
-
---
--- Name: COLUMN pago.monto; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.pago.monto IS 'Monto pagado.';
-
-
---
--- Name: COLUMN pago.fecha_pago; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.pago.fecha_pago IS 'Fecha del pago.';
-
-
---
 -- Name: pago_id_pago_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -2669,20 +1066,6 @@ CREATE TABLE public.parentesco (
     id_parentesco integer NOT NULL,
     nombre character varying(20) NOT NULL
 );
-
-
---
--- Name: TABLE parentesco; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.parentesco IS 'Catálogo de parentescos entre paciente y encargado.';
-
-
---
--- Name: COLUMN parentesco.nombre; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.parentesco.nombre IS 'Parentesco o relación con el paciente.';
 
 
 --
@@ -2714,27 +1097,6 @@ CREATE TABLE public.quirofano (
 
 
 --
--- Name: TABLE quirofano; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.quirofano IS 'Quirófanos de la unidad de Cirugía.';
-
-
---
--- Name: COLUMN quirofano.numero; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.quirofano.numero IS 'Número del quirófano dentro de la unidad de cirugía.';
-
-
---
--- Name: COLUMN quirofano.estado; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.quirofano.estado IS 'Estado: disponible, ocupado o en_mantenimiento.';
-
-
---
 -- Name: quirofano_id_quirofano_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -2757,20 +1119,6 @@ CREATE TABLE public.receta (
     id_consulta integer NOT NULL,
     fecha_proxima_cita date
 );
-
-
---
--- Name: TABLE receta; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.receta IS 'Receta entregada al final de la consulta.';
-
-
---
--- Name: COLUMN receta.fecha_proxima_cita; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.receta.fecha_proxima_cita IS 'Fecha sugerida para la próxima cita de seguimiento.';
 
 
 --
@@ -2800,27 +1148,6 @@ CREATE TABLE public.receta_medicamento (
 
 
 --
--- Name: TABLE receta_medicamento; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.receta_medicamento IS 'Medicamentos prescritos en cada receta.';
-
-
---
--- Name: COLUMN receta_medicamento.dosis; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.receta_medicamento.dosis IS 'Dosis indicada.';
-
-
---
--- Name: COLUMN receta_medicamento.duracion; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.receta_medicamento.duracion IS 'Duración del tratamiento.';
-
-
---
 -- Name: registro_procedimiento; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2834,34 +1161,6 @@ CREATE TABLE public.registro_procedimiento (
     id_enfermero integer NOT NULL,
     CONSTRAINT ck_registro_resultado CHECK (((resultado)::text = ANY ((ARRAY['exito'::character varying, 'falla'::character varying, 'aceptable'::character varying, 'medianamente_aceptable'::character varying, 'no_aceptable'::character varying])::text[])))
 );
-
-
---
--- Name: TABLE registro_procedimiento; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.registro_procedimiento IS 'Resultado de cada aspecto verificado durante la cirugía.';
-
-
---
--- Name: COLUMN registro_procedimiento.resultado; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.registro_procedimiento.resultado IS 'exito/falla, o aceptable/medianamente_aceptable/no_aceptable.';
-
-
---
--- Name: COLUMN registro_procedimiento.descripcion; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.registro_procedimiento.descripcion IS 'Descripción de lo observado.';
-
-
---
--- Name: COLUMN registro_procedimiento.fecha_hora_registro; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.registro_procedimiento.fecha_hora_registro IS 'Hora en que se registró.';
 
 
 --
@@ -2891,20 +1190,6 @@ CREATE TABLE public.requerimiento_equipo (
 
 
 --
--- Name: TABLE requerimiento_equipo; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.requerimiento_equipo IS 'Equipos que solicita el cirujano en el agendamiento.';
-
-
---
--- Name: COLUMN requerimiento_equipo.cantidad; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.requerimiento_equipo.cantidad IS 'Cantidad solicitada.';
-
-
---
 -- Name: requerimiento_instrumento; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2914,20 +1199,6 @@ CREATE TABLE public.requerimiento_instrumento (
     cantidad smallint NOT NULL,
     CONSTRAINT ck_req_instrumento_cantidad CHECK ((cantidad > 0))
 );
-
-
---
--- Name: TABLE requerimiento_instrumento; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.requerimiento_instrumento IS 'Instrumental que solicita el cirujano en el agendamiento.';
-
-
---
--- Name: COLUMN requerimiento_instrumento.cantidad; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.requerimiento_instrumento.cantidad IS 'Cantidad solicitada.';
 
 
 --
@@ -2943,20 +1214,6 @@ CREATE TABLE public.requerimiento_insumo (
 
 
 --
--- Name: TABLE requerimiento_insumo; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.requerimiento_insumo IS 'Insumos que solicita el cirujano en el agendamiento.';
-
-
---
--- Name: COLUMN requerimiento_insumo.cantidad; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.requerimiento_insumo.cantidad IS 'Cantidad solicitada.';
-
-
---
 -- Name: rol_quirurgico; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2966,27 +1223,6 @@ CREATE TABLE public.rol_quirurgico (
     tipo_personal character varying(9) NOT NULL,
     CONSTRAINT ck_rol_tipo_personal CHECK (((tipo_personal)::text = ANY ((ARRAY['medico'::character varying, 'enfermero'::character varying])::text[])))
 );
-
-
---
--- Name: TABLE rol_quirurgico; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.rol_quirurgico IS 'Rol que cumple cada persona del equipo quirúrgico.';
-
-
---
--- Name: COLUMN rol_quirurgico.nombre; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.rol_quirurgico.nombre IS 'Nombre del rol.';
-
-
---
--- Name: COLUMN rol_quirurgico.tipo_personal; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.rol_quirurgico.tipo_personal IS 'Quién cumple el rol: medico o enfermero.';
 
 
 --
@@ -3017,27 +1253,6 @@ CREATE TABLE public.servicio_atencion (
 
 
 --
--- Name: TABLE servicio_atencion; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.servicio_atencion IS 'Tipo de atención médica que ofrece cada unidad, con su costo.';
-
-
---
--- Name: COLUMN servicio_atencion.nombre; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.servicio_atencion.nombre IS 'Nombre del servicio de atención.';
-
-
---
--- Name: COLUMN servicio_atencion.costo; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.servicio_atencion.costo IS 'Costo del servicio en quetzales.';
-
-
---
 -- Name: servicio_atencion_id_servicio_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -3059,20 +1274,6 @@ CREATE TABLE public.tipo_anestesia (
     id_tipo_anestesia integer NOT NULL,
     nombre character varying(40) NOT NULL
 );
-
-
---
--- Name: TABLE tipo_anestesia; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.tipo_anestesia IS 'Catálogo de tipos de anestesia.';
-
-
---
--- Name: COLUMN tipo_anestesia.nombre; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.tipo_anestesia.nombre IS 'Tipo de anestesia.';
 
 
 --
@@ -3098,20 +1299,6 @@ CREATE TABLE public.tipo_cirugia (
     nombre character varying(120) NOT NULL,
     id_especialidad integer NOT NULL
 );
-
-
---
--- Name: TABLE tipo_cirugia; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.tipo_cirugia IS 'Procedimientos quirúrgicos que ofrece la red.';
-
-
---
--- Name: COLUMN tipo_cirugia.nombre; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.tipo_cirugia.nombre IS 'Nombre del procedimiento quirúrgico.';
 
 
 --
@@ -3150,27 +1337,6 @@ CREATE TABLE public.traslado (
 
 
 --
--- Name: TABLE traslado; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.traslado IS 'Ficha de traslado de un paciente entre unidades o hacia fuera de la red.';
-
-
---
--- Name: COLUMN traslado.fecha_hora; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.traslado.fecha_hora IS 'Fecha y hora del traslado.';
-
-
---
--- Name: COLUMN traslado.tipo_traslado; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.traslado.tipo_traslado IS 'interno (dentro de la red) o externo (fuera de la red).';
-
-
---
 -- Name: traslado_id_traslado_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -3198,27 +1364,6 @@ CREATE TABLE public.turno_emergencia (
 
 
 --
--- Name: TABLE turno_emergencia; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.turno_emergencia IS 'Turnos de 12 horas de la unidad de Emergencias.';
-
-
---
--- Name: COLUMN turno_emergencia.fecha; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.turno_emergencia.fecha IS 'Fecha en que inicia el turno.';
-
-
---
--- Name: COLUMN turno_emergencia.jornada; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.turno_emergencia.jornada IS 'diurno (07:00-19:00) o nocturno (19:00-07:00).';
-
-
---
 -- Name: turno_emergencia_id_turno_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -3243,13 +1388,6 @@ CREATE TABLE public.turno_medico (
 
 
 --
--- Name: TABLE turno_medico; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.turno_medico IS 'Médicos asignados a cada turno de emergencia.';
-
-
---
 -- Name: unidad_medica; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3265,27 +1403,6 @@ CREATE TABLE public.unidad_medica (
 
 
 --
--- Name: TABLE unidad_medica; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.unidad_medica IS 'Unidades de atención de cada hospital: Consulta Externa, Emergencias, Cirugía y Hospitalización.';
-
-
---
--- Name: COLUMN unidad_medica.tipo_unidad; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.unidad_medica.tipo_unidad IS 'Tipo de unidad: Consulta Externa, Emergencias, Cirugía u Hospitalización.';
-
-
---
--- Name: COLUMN unidad_medica.costo_dia_hospitalizacion; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.unidad_medica.costo_dia_hospitalizacion IS 'Costo por día internado; solo aplica a Hospitalización.';
-
-
---
 -- Name: unidad_medica_id_unidad_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -3297,126 +1414,6 @@ ALTER TABLE public.unidad_medica ALTER COLUMN id_unidad ADD GENERATED BY DEFAULT
     NO MAXVALUE
     CACHE 1
 );
-
-
---
--- Name: v_cirugia; Type: VIEW; Schema: public; Owner: -
---
-
-CREATE VIEW public.v_cirugia AS
- SELECT c.id_cirugia,
-    a.id_agendamiento,
-    a.id_paciente,
-    a.id_medico_cirujano,
-    a.id_tipo_cirugia,
-    u.id_hospital,
-    c.id_quirofano,
-    c.fecha_hora_inicio,
-    c.fecha_hora_fin,
-    c.estado,
-    c.condicion_evolucion
-   FROM (((public.cirugia c
-     JOIN public.agendamiento_quirurgico a ON ((a.id_agendamiento = c.id_agendamiento)))
-     JOIN public.quirofano q ON ((q.id_quirofano = c.id_quirofano)))
-     JOIN public.unidad_medica u ON ((u.id_unidad = q.id_unidad)));
-
-
---
--- Name: v_consulta; Type: VIEW; Schema: public; Owner: -
---
-
-CREATE VIEW public.v_consulta AS
- SELECT co.id_consulta,
-    ci.id_cita,
-    ci.fecha_hora,
-    ci.id_paciente,
-    ci.id_medico,
-    me.id_hospital,
-    me.id_especialidad,
-    co.id_diagnostico,
-    ci.costo_final
-   FROM ((public.consulta co
-     JOIN public.cita ci ON ((ci.id_cita = co.id_cita)))
-     JOIN public.medico me ON ((me.id_medico = ci.id_medico)));
-
-
---
--- Name: v_estancia; Type: VIEW; Schema: public; Owner: -
---
-
-CREATE VIEW public.v_estancia AS
- SELECT i.id_ingreso,
-    i.id_paciente,
-    u.id_hospital,
-    i.id_unidad,
-    u.tipo_unidad,
-    i.id_servicio,
-    i.id_camilla,
-    i.fecha_hora_ingreso,
-    public.fn_edad(p.fecha_nacimiento, (i.fecha_hora_ingreso)::date) AS edad_al_ingreso,
-    e.id_egreso,
-    e.fecha_hora_egreso,
-    e.codigo_egreso,
-    ((e.fecha_hora_egreso)::date - (i.fecha_hora_ingreso)::date) AS dias_hospitalizado
-   FROM (((public.ingreso i
-     JOIN public.unidad_medica u ON ((u.id_unidad = i.id_unidad)))
-     JOIN public.paciente p ON ((p.id_paciente = i.id_paciente)))
-     LEFT JOIN public.egreso e ON ((e.id_ingreso = i.id_ingreso)));
-
-
---
--- Name: v_factura; Type: VIEW; Schema: public; Owner: -
---
-
-CREATE VIEW public.v_factura AS
- SELECT f.id_factura,
-    f.fecha_emision,
-    f.total,
-    f.numero_cuotas,
-    COALESCE(ci.id_paciente, i.id_paciente, a.id_paciente) AS id_paciente,
-    u.id_hospital,
-    u.id_unidad,
-    u.tipo_unidad,
-    COALESCE(pg.total_pagado, (0)::numeric) AS total_pagado,
-    (f.total - COALESCE(pg.total_pagado, (0)::numeric)) AS saldo
-   FROM (((((((((public.factura f
-     LEFT JOIN public.cita ci ON ((ci.id_cita = f.id_cita)))
-     LEFT JOIN public.medico me ON ((me.id_medico = ci.id_medico)))
-     LEFT JOIN public.unidad_medica uc ON (((uc.id_hospital = me.id_hospital) AND ((uc.tipo_unidad)::text = 'Consulta Externa'::text))))
-     LEFT JOIN public.ingreso i ON ((i.id_ingreso = f.id_ingreso)))
-     LEFT JOIN public.cirugia c ON ((c.id_cirugia = f.id_cirugia)))
-     LEFT JOIN public.agendamiento_quirurgico a ON ((a.id_agendamiento = c.id_agendamiento)))
-     LEFT JOIN public.quirofano q ON ((q.id_quirofano = c.id_quirofano)))
-     JOIN public.unidad_medica u ON ((u.id_unidad = COALESCE(uc.id_unidad, i.id_unidad, q.id_unidad))))
-     LEFT JOIN ( SELECT pago.id_factura,
-            sum(pago.monto) AS total_pagado
-           FROM public.pago
-          GROUP BY pago.id_factura) pg ON ((pg.id_factura = f.id_factura)));
-
-
---
--- Name: v_paciente; Type: VIEW; Schema: public; Owner: -
---
-
-CREATE VIEW public.v_paciente AS
- SELECT p.id_paciente,
-    p.numero_expediente,
-    p.nombres,
-    p.apellidos,
-    p.fecha_nacimiento,
-    public.fn_edad(p.fecha_nacimiento) AS edad,
-    p.sexo,
-    p.dpi,
-    p.telefono,
-    ec.nombre AS estado_civil,
-    m.nombre AS municipio,
-    d.nombre AS departamento,
-    p.area,
-    p.numero_seguro_social
-   FROM (((public.paciente p
-     JOIN public.municipio m ON ((m.id_municipio = p.id_municipio)))
-     JOIN public.departamento d ON ((d.id_departamento = m.id_departamento)))
-     LEFT JOIN public.estado_civil ec ON ((ec.id_estado_civil = p.id_estado_civil)));
 
 
 --
@@ -5343,608 +3340,6 @@ ALTER TABLE ONLY public.unidad_medica
 
 
 --
--- Name: ix_agendamiento_quirurgico_id_medico_cirujano; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_agendamiento_quirurgico_id_medico_cirujano ON public.agendamiento_quirurgico USING btree (id_medico_cirujano);
-
-
---
--- Name: ix_agendamiento_quirurgico_id_paciente; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_agendamiento_quirurgico_id_paciente ON public.agendamiento_quirurgico USING btree (id_paciente);
-
-
---
--- Name: ix_agendamiento_quirurgico_id_quirofano_solicitado; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_agendamiento_quirurgico_id_quirofano_solicitado ON public.agendamiento_quirurgico USING btree (id_quirofano_solicitado);
-
-
---
--- Name: ix_agendamiento_quirurgico_id_tipo_anestesia; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_agendamiento_quirurgico_id_tipo_anestesia ON public.agendamiento_quirurgico USING btree (id_tipo_anestesia);
-
-
---
--- Name: ix_agendamiento_quirurgico_id_tipo_cirugia; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_agendamiento_quirurgico_id_tipo_cirugia ON public.agendamiento_quirurgico USING btree (id_tipo_cirugia);
-
-
---
--- Name: ix_calificacion_id_consulta; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_calificacion_id_consulta ON public.calificacion USING btree (id_consulta);
-
-
---
--- Name: ix_calificacion_id_encargado; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_calificacion_id_encargado ON public.calificacion USING btree (id_encargado);
-
-
---
--- Name: ix_calificacion_id_enfermero; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_calificacion_id_enfermero ON public.calificacion USING btree (id_enfermero);
-
-
---
--- Name: ix_calificacion_id_hospital; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_calificacion_id_hospital ON public.calificacion USING btree (id_hospital);
-
-
---
--- Name: ix_calificacion_id_medico; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_calificacion_id_medico ON public.calificacion USING btree (id_medico);
-
-
---
--- Name: ix_calificacion_id_paciente; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_calificacion_id_paciente ON public.calificacion USING btree (id_paciente);
-
-
---
--- Name: ix_chequeo_preanestesico_id_medico_anestesista; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_chequeo_preanestesico_id_medico_anestesista ON public.chequeo_preanestesico USING btree (id_medico_anestesista);
-
-
---
--- Name: ix_chequeo_preanestesico_id_medico_clasifica; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_chequeo_preanestesico_id_medico_clasifica ON public.chequeo_preanestesico USING btree (id_medico_clasifica);
-
-
---
--- Name: ix_cirugia_fecha_hora_inicio; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_cirugia_fecha_hora_inicio ON public.cirugia USING btree (fecha_hora_inicio);
-
-
---
--- Name: ix_cirugia_id_ingreso; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_cirugia_id_ingreso ON public.cirugia USING btree (id_ingreso);
-
-
---
--- Name: ix_cirugia_id_quirofano; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_cirugia_id_quirofano ON public.cirugia USING btree (id_quirofano);
-
-
---
--- Name: ix_cirugia_insumo_id_insumo; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_cirugia_insumo_id_insumo ON public.cirugia_insumo USING btree (id_insumo);
-
-
---
--- Name: ix_cirugia_personal_id_enfermero; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_cirugia_personal_id_enfermero ON public.cirugia_personal USING btree (id_enfermero);
-
-
---
--- Name: ix_cirugia_personal_id_medico; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_cirugia_personal_id_medico ON public.cirugia_personal USING btree (id_medico);
-
-
---
--- Name: ix_cirugia_personal_id_rol; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_cirugia_personal_id_rol ON public.cirugia_personal USING btree (id_rol);
-
-
---
--- Name: ix_cita_fecha_hora; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_cita_fecha_hora ON public.cita USING btree (fecha_hora);
-
-
---
--- Name: ix_cita_id_medico; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_cita_id_medico ON public.cita USING btree (id_medico);
-
-
---
--- Name: ix_cita_id_paciente; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_cita_id_paciente ON public.cita USING btree (id_paciente);
-
-
---
--- Name: ix_consentimiento_informado_id_medico; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_consentimiento_informado_id_medico ON public.consentimiento_informado USING btree (id_medico);
-
-
---
--- Name: ix_consulta_id_diagnostico; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_consulta_id_diagnostico ON public.consulta USING btree (id_diagnostico);
-
-
---
--- Name: ix_documentacion_etapa_id_enfermero; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_documentacion_etapa_id_enfermero ON public.documentacion_etapa USING btree (id_enfermero);
-
-
---
--- Name: ix_egreso_diagnostico_id_diagnostico; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_egreso_diagnostico_id_diagnostico ON public.egreso_diagnostico USING btree (id_diagnostico);
-
-
---
--- Name: ix_egreso_fecha_hora; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_egreso_fecha_hora ON public.egreso USING btree (fecha_hora_egreso);
-
-
---
--- Name: ix_egreso_id_diagnostico_principal; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_egreso_id_diagnostico_principal ON public.egreso USING btree (id_diagnostico_principal);
-
-
---
--- Name: ix_egreso_id_medico; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_egreso_id_medico ON public.egreso USING btree (id_medico);
-
-
---
--- Name: ix_encargado_id_municipio; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_encargado_id_municipio ON public.encargado USING btree (id_municipio);
-
-
---
--- Name: ix_enfermero_id_hospital; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_enfermero_id_hospital ON public.enfermero USING btree (id_hospital);
-
-
---
--- Name: ix_factura_fecha_emision; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_factura_fecha_emision ON public.factura USING btree (fecha_emision);
-
-
---
--- Name: ix_historia_clinica_id_medico; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_historia_clinica_id_medico ON public.historia_clinica USING btree (id_medico);
-
-
---
--- Name: ix_hospital_id_municipio; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_hospital_id_municipio ON public.hospital USING btree (id_municipio);
-
-
---
--- Name: ix_hospitalizacion_insumo_id_insumo; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_hospitalizacion_insumo_id_insumo ON public.hospitalizacion_insumo USING btree (id_insumo);
-
-
---
--- Name: ix_ingreso_fecha_hora; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_ingreso_fecha_hora ON public.ingreso USING btree (fecha_hora_ingreso);
-
-
---
--- Name: ix_ingreso_id_camilla; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_ingreso_id_camilla ON public.ingreso USING btree (id_camilla);
-
-
---
--- Name: ix_ingreso_id_medico_encargado; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_ingreso_id_medico_encargado ON public.ingreso USING btree (id_medico_encargado);
-
-
---
--- Name: ix_ingreso_id_paciente; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_ingreso_id_paciente ON public.ingreso USING btree (id_paciente);
-
-
---
--- Name: ix_ingreso_id_quirofano; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_ingreso_id_quirofano ON public.ingreso USING btree (id_quirofano);
-
-
---
--- Name: ix_ingreso_id_servicio; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_ingreso_id_servicio ON public.ingreso USING btree (id_servicio);
-
-
---
--- Name: ix_ingreso_id_turno; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_ingreso_id_turno ON public.ingreso USING btree (id_turno);
-
-
---
--- Name: ix_ingreso_id_unidad; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_ingreso_id_unidad ON public.ingreso USING btree (id_unidad);
-
-
---
--- Name: ix_institucion_externa_id_municipio; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_institucion_externa_id_municipio ON public.institucion_externa USING btree (id_municipio);
-
-
---
--- Name: ix_medico_id_especialidad; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_medico_id_especialidad ON public.medico USING btree (id_especialidad);
-
-
---
--- Name: ix_medico_id_hospital; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_medico_id_hospital ON public.medico USING btree (id_hospital);
-
-
---
--- Name: ix_medico_id_municipio; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_medico_id_municipio ON public.medico USING btree (id_municipio);
-
-
---
--- Name: ix_paciente_encargado_id_encargado; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_paciente_encargado_id_encargado ON public.paciente_encargado USING btree (id_encargado);
-
-
---
--- Name: ix_paciente_encargado_id_parentesco; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_paciente_encargado_id_parentesco ON public.paciente_encargado USING btree (id_parentesco);
-
-
---
--- Name: ix_paciente_id_estado_civil; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_paciente_id_estado_civil ON public.paciente USING btree (id_estado_civil);
-
-
---
--- Name: ix_paciente_id_municipio; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_paciente_id_municipio ON public.paciente USING btree (id_municipio);
-
-
---
--- Name: ix_pago_fecha_pago; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_pago_fecha_pago ON public.pago USING btree (fecha_pago);
-
-
---
--- Name: ix_pago_id_metodo_pago; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_pago_id_metodo_pago ON public.pago USING btree (id_metodo_pago);
-
-
---
--- Name: ix_receta_medicamento_id_medicamento; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_receta_medicamento_id_medicamento ON public.receta_medicamento USING btree (id_medicamento);
-
-
---
--- Name: ix_registro_procedimiento_id_aspecto; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_registro_procedimiento_id_aspecto ON public.registro_procedimiento USING btree (id_aspecto);
-
-
---
--- Name: ix_registro_procedimiento_id_enfermero; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_registro_procedimiento_id_enfermero ON public.registro_procedimiento USING btree (id_enfermero);
-
-
---
--- Name: ix_requerimiento_equipo_id_equipo; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_requerimiento_equipo_id_equipo ON public.requerimiento_equipo USING btree (id_equipo);
-
-
---
--- Name: ix_requerimiento_instrumento_id_instrumento; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_requerimiento_instrumento_id_instrumento ON public.requerimiento_instrumento USING btree (id_instrumento);
-
-
---
--- Name: ix_requerimiento_insumo_id_insumo; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_requerimiento_insumo_id_insumo ON public.requerimiento_insumo USING btree (id_insumo);
-
-
---
--- Name: ix_tipo_cirugia_id_especialidad; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_tipo_cirugia_id_especialidad ON public.tipo_cirugia USING btree (id_especialidad);
-
-
---
--- Name: ix_traslado_id_consulta; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_traslado_id_consulta ON public.traslado USING btree (id_consulta);
-
-
---
--- Name: ix_traslado_id_ingreso; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_traslado_id_ingreso ON public.traslado USING btree (id_ingreso);
-
-
---
--- Name: ix_traslado_id_institucion_destino; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_traslado_id_institucion_destino ON public.traslado USING btree (id_institucion_destino);
-
-
---
--- Name: ix_traslado_id_medico_indica; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_traslado_id_medico_indica ON public.traslado USING btree (id_medico_indica);
-
-
---
--- Name: ix_traslado_id_unidad_destino; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_traslado_id_unidad_destino ON public.traslado USING btree (id_unidad_destino);
-
-
---
--- Name: ix_traslado_id_unidad_origen; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_traslado_id_unidad_origen ON public.traslado USING btree (id_unidad_origen);
-
-
---
--- Name: ix_turno_medico_id_medico; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_turno_medico_id_medico ON public.turno_medico USING btree (id_medico);
-
-
---
--- Name: calificacion trg_calificacion_consulta; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_calificacion_consulta BEFORE INSERT OR UPDATE ON public.calificacion FOR EACH ROW EXECUTE FUNCTION public.fn_calificacion_consulta();
-
-
---
--- Name: camilla trg_camilla_unidad; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_camilla_unidad BEFORE INSERT OR UPDATE ON public.camilla FOR EACH ROW EXECUTE FUNCTION public.fn_camilla_unidad();
-
-
---
--- Name: chequeo_preanestesico trg_chequeo_aprobado; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_chequeo_aprobado BEFORE INSERT OR UPDATE OF id_agendamiento ON public.chequeo_preanestesico FOR EACH ROW EXECUTE FUNCTION public.fn_agendamiento_aprobado();
-
-
---
--- Name: cirugia trg_cirugia_aprobada; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_cirugia_aprobada BEFORE INSERT OR UPDATE OF id_agendamiento ON public.cirugia FOR EACH ROW EXECUTE FUNCTION public.fn_agendamiento_aprobado();
-
-
---
--- Name: cirugia_personal trg_cirugia_personal_rol; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_cirugia_personal_rol BEFORE INSERT OR UPDATE ON public.cirugia_personal FOR EACH ROW EXECUTE FUNCTION public.fn_cirugia_personal_rol();
-
-
---
--- Name: consentimiento_informado trg_consentimiento_aprobado; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_consentimiento_aprobado BEFORE INSERT OR UPDATE OF id_agendamiento ON public.consentimiento_informado FOR EACH ROW EXECUTE FUNCTION public.fn_agendamiento_aprobado();
-
-
---
--- Name: consulta trg_consulta_cita; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_consulta_cita BEFORE INSERT OR UPDATE OF id_cita ON public.consulta FOR EACH ROW EXECUTE FUNCTION public.fn_consulta_cita();
-
-
---
--- Name: egreso trg_egreso_fecha; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_egreso_fecha BEFORE INSERT OR UPDATE ON public.egreso FOR EACH ROW EXECUTE FUNCTION public.fn_egreso_fecha();
-
-
---
--- Name: hospitalizacion_insumo trg_hosp_insumo_ingreso; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_hosp_insumo_ingreso BEFORE INSERT OR UPDATE ON public.hospitalizacion_insumo FOR EACH ROW EXECUTE FUNCTION public.fn_hosp_insumo_ingreso();
-
-
---
--- Name: ingreso trg_ingreso_consistencia; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_ingreso_consistencia BEFORE INSERT OR UPDATE ON public.ingreso FOR EACH ROW EXECUTE FUNCTION public.fn_ingreso_consistencia();
-
-
---
--- Name: paciente trg_paciente_nacimiento; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_paciente_nacimiento BEFORE INSERT OR UPDATE OF fecha_nacimiento ON public.paciente FOR EACH ROW EXECUTE FUNCTION public.fn_paciente_nacimiento();
-
-
---
--- Name: pago trg_pago_plan; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_pago_plan BEFORE INSERT OR UPDATE ON public.pago FOR EACH ROW EXECUTE FUNCTION public.fn_pago_plan();
-
-
---
--- Name: quirofano trg_quirofano_unidad; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_quirofano_unidad BEFORE INSERT OR UPDATE ON public.quirofano FOR EACH ROW EXECUTE FUNCTION public.fn_quirofano_unidad();
-
-
---
--- Name: receta trg_receta_proxima_cita; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_receta_proxima_cita BEFORE INSERT OR UPDATE ON public.receta FOR EACH ROW EXECUTE FUNCTION public.fn_receta_proxima_cita();
-
-
---
--- Name: registro_procedimiento trg_registro_resultado; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_registro_resultado BEFORE INSERT OR UPDATE ON public.registro_procedimiento FOR EACH ROW EXECUTE FUNCTION public.fn_registro_resultado();
-
-
---
--- Name: traslado trg_traslado_origen; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_traslado_origen BEFORE INSERT OR UPDATE ON public.traslado FOR EACH ROW EXECUTE FUNCTION public.fn_traslado_origen();
-
-
---
--- Name: turno_medico trg_turno_medico_hospital; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_turno_medico_hospital BEFORE INSERT OR UPDATE ON public.turno_medico FOR EACH ROW EXECUTE FUNCTION public.fn_turno_medico_hospital();
-
-
---
--- Name: turno_emergencia trg_turno_unidad; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_turno_unidad BEFORE INSERT OR UPDATE ON public.turno_emergencia FOR EACH ROW EXECUTE FUNCTION public.fn_turno_unidad();
-
-
---
 -- Name: agendamiento_quirurgico agendamiento_quirurgico_id_medico_cirujano_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6682,246 +4077,51 @@ GRANT USAGE ON SCHEMA public TO visor;
 
 
 --
--- Name: FUNCTION fn_agendamiento_aprobado(); Type: ACL; Schema: public; Owner: -
---
-
-REVOKE ALL ON FUNCTION public.fn_agendamiento_aprobado() FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fn_agendamiento_aprobado() TO admin;
-
-
---
--- Name: FUNCTION fn_calificacion_consulta(); Type: ACL; Schema: public; Owner: -
---
-
-REVOKE ALL ON FUNCTION public.fn_calificacion_consulta() FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fn_calificacion_consulta() TO admin;
-
-
---
--- Name: FUNCTION fn_camilla_unidad(); Type: ACL; Schema: public; Owner: -
---
-
-REVOKE ALL ON FUNCTION public.fn_camilla_unidad() FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fn_camilla_unidad() TO admin;
-
-
---
--- Name: FUNCTION fn_cirugia_personal_rol(); Type: ACL; Schema: public; Owner: -
---
-
-REVOKE ALL ON FUNCTION public.fn_cirugia_personal_rol() FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fn_cirugia_personal_rol() TO admin;
-
-
---
--- Name: FUNCTION fn_consulta_cita(); Type: ACL; Schema: public; Owner: -
---
-
-REVOKE ALL ON FUNCTION public.fn_consulta_cita() FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fn_consulta_cita() TO admin;
-
-
---
--- Name: FUNCTION fn_edad(p_fecha_nacimiento date, p_fecha date); Type: ACL; Schema: public; Owner: -
---
-
-REVOKE ALL ON FUNCTION public.fn_edad(p_fecha_nacimiento date, p_fecha date) FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fn_edad(p_fecha_nacimiento date, p_fecha date) TO admin;
-GRANT ALL ON FUNCTION public.fn_edad(p_fecha_nacimiento date, p_fecha date) TO visor;
-
-
---
--- Name: FUNCTION fn_egreso_fecha(); Type: ACL; Schema: public; Owner: -
---
-
-REVOKE ALL ON FUNCTION public.fn_egreso_fecha() FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fn_egreso_fecha() TO admin;
-
-
---
--- Name: FUNCTION fn_hosp_insumo_ingreso(); Type: ACL; Schema: public; Owner: -
---
-
-REVOKE ALL ON FUNCTION public.fn_hosp_insumo_ingreso() FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fn_hosp_insumo_ingreso() TO admin;
-
-
---
--- Name: FUNCTION fn_ingreso_consistencia(); Type: ACL; Schema: public; Owner: -
---
-
-REVOKE ALL ON FUNCTION public.fn_ingreso_consistencia() FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fn_ingreso_consistencia() TO admin;
-
-
---
--- Name: FUNCTION fn_paciente_nacimiento(); Type: ACL; Schema: public; Owner: -
---
-
-REVOKE ALL ON FUNCTION public.fn_paciente_nacimiento() FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fn_paciente_nacimiento() TO admin;
-
-
---
--- Name: FUNCTION fn_pago_plan(); Type: ACL; Schema: public; Owner: -
---
-
-REVOKE ALL ON FUNCTION public.fn_pago_plan() FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fn_pago_plan() TO admin;
-
-
---
--- Name: FUNCTION fn_quirofano_unidad(); Type: ACL; Schema: public; Owner: -
---
-
-REVOKE ALL ON FUNCTION public.fn_quirofano_unidad() FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fn_quirofano_unidad() TO admin;
-
-
---
--- Name: FUNCTION fn_receta_proxima_cita(); Type: ACL; Schema: public; Owner: -
---
-
-REVOKE ALL ON FUNCTION public.fn_receta_proxima_cita() FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fn_receta_proxima_cita() TO admin;
-
-
---
--- Name: FUNCTION fn_registro_resultado(); Type: ACL; Schema: public; Owner: -
---
-
-REVOKE ALL ON FUNCTION public.fn_registro_resultado() FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fn_registro_resultado() TO admin;
-
-
---
--- Name: FUNCTION fn_tipo_unidad(p_id_unidad integer); Type: ACL; Schema: public; Owner: -
---
-
-REVOKE ALL ON FUNCTION public.fn_tipo_unidad(p_id_unidad integer) FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fn_tipo_unidad(p_id_unidad integer) TO admin;
-GRANT ALL ON FUNCTION public.fn_tipo_unidad(p_id_unidad integer) TO visor;
-
-
---
--- Name: FUNCTION fn_traslado_origen(); Type: ACL; Schema: public; Owner: -
---
-
-REVOKE ALL ON FUNCTION public.fn_traslado_origen() FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fn_traslado_origen() TO admin;
-
-
---
--- Name: FUNCTION fn_turno_medico_hospital(); Type: ACL; Schema: public; Owner: -
---
-
-REVOKE ALL ON FUNCTION public.fn_turno_medico_hospital() FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fn_turno_medico_hospital() TO admin;
-
-
---
--- Name: FUNCTION fn_turno_unidad(); Type: ACL; Schema: public; Owner: -
---
-
-REVOKE ALL ON FUNCTION public.fn_turno_unidad() FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fn_turno_unidad() TO admin;
-
-
---
 -- Name: TABLE agendamiento_quirurgico; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.agendamiento_quirurgico TO admin;
 GRANT SELECT ON TABLE public.agendamiento_quirurgico TO visor;
-
-
---
--- Name: SEQUENCE agendamiento_quirurgico_id_agendamiento_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.agendamiento_quirurgico_id_agendamiento_seq TO admin;
 
 
 --
 -- Name: TABLE aspecto_quirurgico; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.aspecto_quirurgico TO admin;
 GRANT SELECT ON TABLE public.aspecto_quirurgico TO visor;
-
-
---
--- Name: SEQUENCE aspecto_quirurgico_id_aspecto_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.aspecto_quirurgico_id_aspecto_seq TO admin;
 
 
 --
 -- Name: TABLE calificacion; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.calificacion TO admin;
 GRANT SELECT ON TABLE public.calificacion TO visor;
-
-
---
--- Name: SEQUENCE calificacion_id_calificacion_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.calificacion_id_calificacion_seq TO admin;
 
 
 --
 -- Name: TABLE camilla; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.camilla TO admin;
 GRANT SELECT ON TABLE public.camilla TO visor;
-
-
---
--- Name: SEQUENCE camilla_id_camilla_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.camilla_id_camilla_seq TO admin;
 
 
 --
 -- Name: TABLE chequeo_preanestesico; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.chequeo_preanestesico TO admin;
 GRANT SELECT ON TABLE public.chequeo_preanestesico TO visor;
-
-
---
--- Name: SEQUENCE chequeo_preanestesico_id_chequeo_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.chequeo_preanestesico_id_chequeo_seq TO admin;
 
 
 --
 -- Name: TABLE cirugia; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.cirugia TO admin;
 GRANT SELECT ON TABLE public.cirugia TO visor;
-
-
---
--- Name: SEQUENCE cirugia_id_cirugia_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.cirugia_id_cirugia_seq TO admin;
 
 
 --
 -- Name: TABLE cirugia_insumo; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.cirugia_insumo TO admin;
 GRANT SELECT ON TABLE public.cirugia_insumo TO visor;
 
 
@@ -6929,97 +4129,48 @@ GRANT SELECT ON TABLE public.cirugia_insumo TO visor;
 -- Name: TABLE cirugia_personal; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.cirugia_personal TO admin;
 GRANT SELECT ON TABLE public.cirugia_personal TO visor;
-
-
---
--- Name: SEQUENCE cirugia_personal_id_cirugia_personal_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.cirugia_personal_id_cirugia_personal_seq TO admin;
 
 
 --
 -- Name: TABLE cita; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.cita TO admin;
 GRANT SELECT ON TABLE public.cita TO visor;
-
-
---
--- Name: SEQUENCE cita_id_cita_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.cita_id_cita_seq TO admin;
 
 
 --
 -- Name: TABLE consentimiento_informado; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.consentimiento_informado TO admin;
 GRANT SELECT ON TABLE public.consentimiento_informado TO visor;
-
-
---
--- Name: SEQUENCE consentimiento_informado_id_consentimiento_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.consentimiento_informado_id_consentimiento_seq TO admin;
 
 
 --
 -- Name: TABLE consulta; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.consulta TO admin;
 GRANT SELECT ON TABLE public.consulta TO visor;
-
-
---
--- Name: SEQUENCE consulta_id_consulta_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.consulta_id_consulta_seq TO admin;
 
 
 --
 -- Name: TABLE departamento; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.departamento TO admin;
 GRANT SELECT ON TABLE public.departamento TO visor;
-
-
---
--- Name: SEQUENCE departamento_id_departamento_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.departamento_id_departamento_seq TO admin;
 
 
 --
 -- Name: TABLE diagnostico; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.diagnostico TO admin;
 GRANT SELECT ON TABLE public.diagnostico TO visor;
-
-
---
--- Name: SEQUENCE diagnostico_id_diagnostico_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.diagnostico_id_diagnostico_seq TO admin;
 
 
 --
 -- Name: TABLE documentacion_etapa; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.documentacion_etapa TO admin;
 GRANT SELECT ON TABLE public.documentacion_etapa TO visor;
 
 
@@ -7027,7 +4178,6 @@ GRANT SELECT ON TABLE public.documentacion_etapa TO visor;
 -- Name: TABLE egreso; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.egreso TO admin;
 GRANT SELECT ON TABLE public.egreso TO visor;
 
 
@@ -7035,142 +4185,69 @@ GRANT SELECT ON TABLE public.egreso TO visor;
 -- Name: TABLE egreso_diagnostico; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.egreso_diagnostico TO admin;
 GRANT SELECT ON TABLE public.egreso_diagnostico TO visor;
-
-
---
--- Name: SEQUENCE egreso_id_egreso_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.egreso_id_egreso_seq TO admin;
 
 
 --
 -- Name: TABLE encargado; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.encargado TO admin;
 GRANT SELECT ON TABLE public.encargado TO visor;
-
-
---
--- Name: SEQUENCE encargado_id_encargado_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.encargado_id_encargado_seq TO admin;
 
 
 --
 -- Name: TABLE enfermero; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.enfermero TO admin;
 GRANT SELECT ON TABLE public.enfermero TO visor;
-
-
---
--- Name: SEQUENCE enfermero_id_enfermero_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.enfermero_id_enfermero_seq TO admin;
 
 
 --
 -- Name: TABLE equipo; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.equipo TO admin;
 GRANT SELECT ON TABLE public.equipo TO visor;
-
-
---
--- Name: SEQUENCE equipo_id_equipo_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.equipo_id_equipo_seq TO admin;
 
 
 --
 -- Name: TABLE especialidad; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.especialidad TO admin;
 GRANT SELECT ON TABLE public.especialidad TO visor;
-
-
---
--- Name: SEQUENCE especialidad_id_especialidad_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.especialidad_id_especialidad_seq TO admin;
 
 
 --
 -- Name: TABLE estado_civil; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.estado_civil TO admin;
 GRANT SELECT ON TABLE public.estado_civil TO visor;
-
-
---
--- Name: SEQUENCE estado_civil_id_estado_civil_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.estado_civil_id_estado_civil_seq TO admin;
 
 
 --
 -- Name: TABLE factura; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.factura TO admin;
 GRANT SELECT ON TABLE public.factura TO visor;
-
-
---
--- Name: SEQUENCE factura_id_factura_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.factura_id_factura_seq TO admin;
 
 
 --
 -- Name: TABLE historia_clinica; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.historia_clinica TO admin;
 GRANT SELECT ON TABLE public.historia_clinica TO visor;
-
-
---
--- Name: SEQUENCE historia_clinica_id_historia_clinica_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.historia_clinica_id_historia_clinica_seq TO admin;
 
 
 --
 -- Name: TABLE hospital; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.hospital TO admin;
 GRANT SELECT ON TABLE public.hospital TO visor;
-
-
---
--- Name: SEQUENCE hospital_id_hospital_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.hospital_id_hospital_seq TO admin;
 
 
 --
 -- Name: TABLE hospitalizacion_insumo; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.hospitalizacion_insumo TO admin;
 GRANT SELECT ON TABLE public.hospitalizacion_insumo TO visor;
 
 
@@ -7178,127 +4255,62 @@ GRANT SELECT ON TABLE public.hospitalizacion_insumo TO visor;
 -- Name: TABLE ingreso; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.ingreso TO admin;
 GRANT SELECT ON TABLE public.ingreso TO visor;
-
-
---
--- Name: SEQUENCE ingreso_id_ingreso_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.ingreso_id_ingreso_seq TO admin;
 
 
 --
 -- Name: TABLE institucion_externa; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.institucion_externa TO admin;
 GRANT SELECT ON TABLE public.institucion_externa TO visor;
-
-
---
--- Name: SEQUENCE institucion_externa_id_institucion_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.institucion_externa_id_institucion_seq TO admin;
 
 
 --
 -- Name: TABLE instrumento; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.instrumento TO admin;
 GRANT SELECT ON TABLE public.instrumento TO visor;
-
-
---
--- Name: SEQUENCE instrumento_id_instrumento_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.instrumento_id_instrumento_seq TO admin;
 
 
 --
 -- Name: TABLE insumo; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.insumo TO admin;
 GRANT SELECT ON TABLE public.insumo TO visor;
-
-
---
--- Name: SEQUENCE insumo_id_insumo_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.insumo_id_insumo_seq TO admin;
 
 
 --
 -- Name: TABLE medicamento; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.medicamento TO admin;
 GRANT SELECT ON TABLE public.medicamento TO visor;
-
-
---
--- Name: SEQUENCE medicamento_id_medicamento_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.medicamento_id_medicamento_seq TO admin;
 
 
 --
 -- Name: TABLE medico; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.medico TO admin;
 GRANT SELECT ON TABLE public.medico TO visor;
-
-
---
--- Name: SEQUENCE medico_id_medico_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.medico_id_medico_seq TO admin;
 
 
 --
 -- Name: TABLE metodo_pago; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.metodo_pago TO admin;
 GRANT SELECT ON TABLE public.metodo_pago TO visor;
-
-
---
--- Name: SEQUENCE metodo_pago_id_metodo_pago_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.metodo_pago_id_metodo_pago_seq TO admin;
 
 
 --
 -- Name: TABLE municipio; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.municipio TO admin;
 GRANT SELECT ON TABLE public.municipio TO visor;
-
-
---
--- Name: SEQUENCE municipio_id_municipio_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.municipio_id_municipio_seq TO admin;
 
 
 --
 -- Name: TABLE paciente; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.paciente TO admin;
 GRANT SELECT ON TABLE public.paciente TO visor;
 
 
@@ -7306,82 +4318,41 @@ GRANT SELECT ON TABLE public.paciente TO visor;
 -- Name: TABLE paciente_encargado; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.paciente_encargado TO admin;
 GRANT SELECT ON TABLE public.paciente_encargado TO visor;
-
-
---
--- Name: SEQUENCE paciente_id_paciente_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.paciente_id_paciente_seq TO admin;
 
 
 --
 -- Name: TABLE pago; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.pago TO admin;
 GRANT SELECT ON TABLE public.pago TO visor;
-
-
---
--- Name: SEQUENCE pago_id_pago_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.pago_id_pago_seq TO admin;
 
 
 --
 -- Name: TABLE parentesco; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.parentesco TO admin;
 GRANT SELECT ON TABLE public.parentesco TO visor;
-
-
---
--- Name: SEQUENCE parentesco_id_parentesco_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.parentesco_id_parentesco_seq TO admin;
 
 
 --
 -- Name: TABLE quirofano; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.quirofano TO admin;
 GRANT SELECT ON TABLE public.quirofano TO visor;
-
-
---
--- Name: SEQUENCE quirofano_id_quirofano_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.quirofano_id_quirofano_seq TO admin;
 
 
 --
 -- Name: TABLE receta; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.receta TO admin;
 GRANT SELECT ON TABLE public.receta TO visor;
-
-
---
--- Name: SEQUENCE receta_id_receta_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.receta_id_receta_seq TO admin;
 
 
 --
 -- Name: TABLE receta_medicamento; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.receta_medicamento TO admin;
 GRANT SELECT ON TABLE public.receta_medicamento TO visor;
 
 
@@ -7389,22 +4360,13 @@ GRANT SELECT ON TABLE public.receta_medicamento TO visor;
 -- Name: TABLE registro_procedimiento; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.registro_procedimiento TO admin;
 GRANT SELECT ON TABLE public.registro_procedimiento TO visor;
-
-
---
--- Name: SEQUENCE registro_procedimiento_id_registro_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.registro_procedimiento_id_registro_seq TO admin;
 
 
 --
 -- Name: TABLE requerimiento_equipo; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.requerimiento_equipo TO admin;
 GRANT SELECT ON TABLE public.requerimiento_equipo TO visor;
 
 
@@ -7412,7 +4374,6 @@ GRANT SELECT ON TABLE public.requerimiento_equipo TO visor;
 -- Name: TABLE requerimiento_instrumento; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.requerimiento_instrumento TO admin;
 GRANT SELECT ON TABLE public.requerimiento_instrumento TO visor;
 
 
@@ -7420,7 +4381,6 @@ GRANT SELECT ON TABLE public.requerimiento_instrumento TO visor;
 -- Name: TABLE requerimiento_insumo; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.requerimiento_insumo TO admin;
 GRANT SELECT ON TABLE public.requerimiento_insumo TO visor;
 
 
@@ -7428,97 +4388,48 @@ GRANT SELECT ON TABLE public.requerimiento_insumo TO visor;
 -- Name: TABLE rol_quirurgico; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.rol_quirurgico TO admin;
 GRANT SELECT ON TABLE public.rol_quirurgico TO visor;
-
-
---
--- Name: SEQUENCE rol_quirurgico_id_rol_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.rol_quirurgico_id_rol_seq TO admin;
 
 
 --
 -- Name: TABLE servicio_atencion; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.servicio_atencion TO admin;
 GRANT SELECT ON TABLE public.servicio_atencion TO visor;
-
-
---
--- Name: SEQUENCE servicio_atencion_id_servicio_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.servicio_atencion_id_servicio_seq TO admin;
 
 
 --
 -- Name: TABLE tipo_anestesia; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.tipo_anestesia TO admin;
 GRANT SELECT ON TABLE public.tipo_anestesia TO visor;
-
-
---
--- Name: SEQUENCE tipo_anestesia_id_tipo_anestesia_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.tipo_anestesia_id_tipo_anestesia_seq TO admin;
 
 
 --
 -- Name: TABLE tipo_cirugia; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.tipo_cirugia TO admin;
 GRANT SELECT ON TABLE public.tipo_cirugia TO visor;
-
-
---
--- Name: SEQUENCE tipo_cirugia_id_tipo_cirugia_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.tipo_cirugia_id_tipo_cirugia_seq TO admin;
 
 
 --
 -- Name: TABLE traslado; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.traslado TO admin;
 GRANT SELECT ON TABLE public.traslado TO visor;
-
-
---
--- Name: SEQUENCE traslado_id_traslado_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.traslado_id_traslado_seq TO admin;
 
 
 --
 -- Name: TABLE turno_emergencia; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.turno_emergencia TO admin;
 GRANT SELECT ON TABLE public.turno_emergencia TO visor;
-
-
---
--- Name: SEQUENCE turno_emergencia_id_turno_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.turno_emergencia_id_turno_seq TO admin;
 
 
 --
 -- Name: TABLE turno_medico; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.turno_medico TO admin;
 GRANT SELECT ON TABLE public.turno_medico TO visor;
 
 
@@ -7526,55 +4437,7 @@ GRANT SELECT ON TABLE public.turno_medico TO visor;
 -- Name: TABLE unidad_medica; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.unidad_medica TO admin;
 GRANT SELECT ON TABLE public.unidad_medica TO visor;
-
-
---
--- Name: SEQUENCE unidad_medica_id_unidad_seq; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON SEQUENCE public.unidad_medica_id_unidad_seq TO admin;
-
-
---
--- Name: TABLE v_cirugia; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON TABLE public.v_cirugia TO admin;
-GRANT SELECT ON TABLE public.v_cirugia TO visor;
-
-
---
--- Name: TABLE v_consulta; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON TABLE public.v_consulta TO admin;
-GRANT SELECT ON TABLE public.v_consulta TO visor;
-
-
---
--- Name: TABLE v_estancia; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON TABLE public.v_estancia TO admin;
-GRANT SELECT ON TABLE public.v_estancia TO visor;
-
-
---
--- Name: TABLE v_factura; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON TABLE public.v_factura TO admin;
-GRANT SELECT ON TABLE public.v_factura TO visor;
-
-
---
--- Name: TABLE v_paciente; Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON TABLE public.v_paciente TO admin;
-GRANT SELECT ON TABLE public.v_paciente TO visor;
 
 
 --
@@ -7588,7 +4451,21 @@ ALTER DEFAULT PRIVILEGES FOR ROLE hospital IN SCHEMA public GRANT ALL ON SEQUENC
 -- Name: DEFAULT PRIVILEGES FOR FUNCTIONS; Type: DEFAULT ACL; Schema: public; Owner: -
 --
 
+ALTER DEFAULT PRIVILEGES FOR ROLE admin IN SCHEMA public GRANT ALL ON FUNCTIONS TO visor;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR FUNCTIONS; Type: DEFAULT ACL; Schema: public; Owner: -
+--
+
 ALTER DEFAULT PRIVILEGES FOR ROLE hospital IN SCHEMA public GRANT ALL ON FUNCTIONS TO admin;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR TABLES; Type: DEFAULT ACL; Schema: public; Owner: -
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE admin IN SCHEMA public GRANT SELECT ON TABLES TO visor;
 
 
 --
@@ -7603,5 +4480,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE hospital IN SCHEMA public GRANT ALL ON TABLES 
 -- PostgreSQL database dump complete
 --
 
-\unrestrict fgJUgfaaKt6lRmvmD5KqOd8LZq63L4BWBiYHjreDgEt8WWSgivO5MPFyRKwJssI
+\unrestrict wnBTvdIbKDAhjxaJK3WxPaeMzLBX5Plxv6If051ooxjt4JH5IqS4rlBk9SxSqbM
 

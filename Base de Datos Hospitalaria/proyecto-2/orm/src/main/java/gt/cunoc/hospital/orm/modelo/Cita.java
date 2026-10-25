@@ -25,6 +25,10 @@ public class Cita {
     @JoinColumn(name = "id_paciente")
     private Paciente paciente;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "id_clinica")
+    private Clinica clinica;
+
     @Column(name = "fecha_hora")
     private OffsetDateTime fechaHora;
 
@@ -33,6 +37,7 @@ public class Cita {
 
     public Integer getId() { return id; }
     public Paciente getPaciente() { return paciente; }
+    public Clinica getClinica() { return clinica; }
     public OffsetDateTime getFechaHora() { return fechaHora; }
     public String getEstado() { return estado; }
 }

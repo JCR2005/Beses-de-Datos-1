@@ -10,9 +10,12 @@
         <class>gt.cunoc.hospital.orm.modelo.Hospital</class>
         <class>gt.cunoc.hospital.orm.modelo.UnidadMedica</class>
         <class>gt.cunoc.hospital.orm.modelo.Paciente</class>
+        <class>gt.cunoc.hospital.orm.modelo.Clinica</class>
         <class>gt.cunoc.hospital.orm.modelo.Cita</class>
         <class>gt.cunoc.hospital.orm.modelo.Consulta</class>
         <class>gt.cunoc.hospital.orm.modelo.Ingreso</class>
+        <class>gt.cunoc.hospital.orm.modelo.Quirofano</class>
+        <class>gt.cunoc.hospital.orm.modelo.Cirugia</class>
         <class>gt.cunoc.hospital.orm.modelo.MetodoPago</class>
         <class>gt.cunoc.hospital.orm.modelo.Factura</class>
         <class>gt.cunoc.hospital.orm.modelo.Pago</class>

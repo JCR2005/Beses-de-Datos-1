@@ -3,10 +3,7 @@
 -- una COPIA de la base (nunca a la base entregada).
 --
 -- Variables de psql: :medicos y :calificaciones (una por consulta).
--- Los datos pasan por los mismos disparadores y restricciones que los reales.
-
-begin;
-set search_path to public;
+-- Los datos pasan por las mismas restricciones que los reales.
 
 insert into personal (id_personal, tipo_personal, nombres, apellidos, dpi, direccion, id_municipio, area,
                       id_hospital, fecha_contratacion, salario, nivel_acceso)
@@ -14,9 +11,11 @@ select 100000 + k, 'medico', 'Médico', 'Prueba ' || k, '9' || lpad(k::text, 12,
        1 + k % 5, date '2020-01-01', 10000.00, 'operativo'
   from generate_series(1, :medicos) k;
 
-insert into medico (id_medico, id_especialidad, tipo_medico, costo_primera_consulta, horario_inicio, horario_fin)
-select 100000 + k, 307, 'general', 150.00, '08:00', '12:00'
-  from generate_series(1, :medicos) k;
+insert into medico (id_medico, nombres, apellidos, dpi, telefono, id_hospital, id_municipio, area,
+                    id_especialidad, tipo_medico, costo_primera_consulta, horario_inicio, horario_fin)
+select id_personal, nombres, apellidos, dpi, telefono, id_hospital, id_municipio, area,
+       307, 'general', 150.00, '08:00', '12:00'
+  from personal where id_personal > 100000;
 
 insert into cita (id_cita, id_paciente, id_medico, fecha_hora, numero_clinica, medio_asignacion, estado, costo_base, costo_final)
 select 1000000 + k, 1 + k % 67, 100001 + k % :medicos,
@@ -31,5 +30,4 @@ insert into calificacion (id_paciente, fecha, puntuacion, id_medico, id_consulta
 select ci.id_paciente, ci.fecha_hora::date, 1 + (ci.id_cita * 7 + ci.id_medico) % 5, ci.id_medico, ci.id_cita
   from cita ci where ci.id_cita > 1000000;
 
-commit;
 analyze;

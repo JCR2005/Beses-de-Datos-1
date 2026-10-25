@@ -1,8 +1,6 @@
 -- Proyecto 1 - BD Hospitales de Occidente
 -- 04_consulta_externa.sql : citas, consultas y recetas (datos FICTICIOS)
 
-set search_path to public;
-
 -- reglas de costo: reconsulta 75%, referido 80%, sobrecargo de 10% por cancelar sin aviso
 insert into cita (id_cita, id_paciente, id_medico, fecha_hora, numero_clinica, medio_asignacion, estado, es_reconsulta, es_referido, cancelada_sin_aviso, costo_base, costo_final) values
 (1, 1, 1002, '2026-08-10 09:00-06', 'A-101', 'telefonico', 'realizada', true, false, false, 220.00, 165.00),

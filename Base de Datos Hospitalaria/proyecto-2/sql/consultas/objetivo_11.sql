@@ -1,41 +1,42 @@
--- Proyecto 2 - Objetivo 11
--- Ingresos monetarios totales de cada hospital en un lapso de tiempo.
---
--- Se muestra lo facturado (servicios prestados) y lo efectivamente cobrado
--- (cuotas pagadas) en el lapso, y la diferencia pendiente de cobro.
+-- Objetivo 11: ingresos monetarios totales de cada hospital
+-- lo facturado (servicios prestados), lo cobrado (cuotas pagadas) y lo pendiente.
+-- El hospital de cada factura sale de su origen: la clinica de la cita, la unidad
+-- del ingreso o el quirofano de la cirugia (cada factura tiene solo uno).
+-- lapso: enero a octubre de 2026
 
-begin;
-set role admin;
-set search_path to public;
-
-create or replace function fn_objetivo_11(p_desde date, p_hasta date)
-returns table (hospital varchar, facturas bigint, total_facturado numeric, total_cobrado numeric, pendiente_de_cobro numeric)
-language sql stable
-as $$
-    with facturado as (
-        select id_hospital, count(*) as facturas, sum(total) as total
-          from v_factura
-         where fecha_emision >= p_desde and fecha_emision < p_hasta + 1
-         group by id_hospital
-    ), cobrado as (
-        select vf.id_hospital, sum(p.monto) as total
-          from pago p join v_factura vf on vf.id_factura = p.id_factura
-         where p.fecha_pago between p_desde and p_hasta
-         group by vf.id_hospital
-    )
-    select h.nombre, coalesce(f.facturas, 0), coalesce(f.total, 0), coalesce(c.total, 0),
-           coalesce(f.total, 0) - coalesce(c.total, 0)
-      from hospital h
-      left join facturado f on f.id_hospital = h.id_hospital
-      left join cobrado c on c.id_hospital = h.id_hospital
-     order by 3 desc;
-$$;
-
-comment on function fn_objetivo_11(date, date) is 'Objetivo 11: ingresos totales (facturado y cobrado) por hospital.';
-
-reset role;
-commit;
-
-set role visor;
-select * from fn_objetivo_11('2026-01-01', '2026-10-31');
-reset role;
+select hospital, facturas, total_facturado, total_cobrado,
+       total_facturado - total_cobrado as pendiente_de_cobro
+from (select h.nombre as hospital,
+             (select count(*)
+              from factura f
+              left join cita c on c.id_cita = f.id_cita
+              left join clinica cl on cl.id_clinica = c.id_clinica
+              left join ingreso i on i.id_ingreso = f.id_ingreso
+              left join cirugia ci on ci.id_cirugia = f.id_cirugia
+              left join quirofano q on q.id_quirofano = ci.id_quirofano
+              inner join unidad_medica u on u.id_unidad in (cl.id_unidad, i.id_unidad, q.id_unidad)
+              where u.id_hospital = h.id_hospital
+                and f.fecha_emision between '2026-01-01' and '2026-10-31 23:59:59') as facturas,
+             (select coalesce(sum(f.total), 0)
+              from factura f
+              left join cita c on c.id_cita = f.id_cita
+              left join clinica cl on cl.id_clinica = c.id_clinica
+              left join ingreso i on i.id_ingreso = f.id_ingreso
+              left join cirugia ci on ci.id_cirugia = f.id_cirugia
+              left join quirofano q on q.id_quirofano = ci.id_quirofano
+              inner join unidad_medica u on u.id_unidad in (cl.id_unidad, i.id_unidad, q.id_unidad)
+              where u.id_hospital = h.id_hospital
+                and f.fecha_emision between '2026-01-01' and '2026-10-31 23:59:59') as total_facturado,
+             (select coalesce(sum(p.monto), 0)
+              from pago p
+              inner join factura f on f.id_factura = p.id_factura
+              left join cita c on c.id_cita = f.id_cita
+              left join clinica cl on cl.id_clinica = c.id_clinica
+              left join ingreso i on i.id_ingreso = f.id_ingreso
+              left join cirugia ci on ci.id_cirugia = f.id_cirugia
+              left join quirofano q on q.id_quirofano = ci.id_quirofano
+              inner join unidad_medica u on u.id_unidad in (cl.id_unidad, i.id_unidad, q.id_unidad)
+              where u.id_hospital = h.id_hospital
+                and p.fecha_pago between '2026-01-01' and '2026-10-31') as total_cobrado
+      from hospital h) datos
+order by total_facturado desc;

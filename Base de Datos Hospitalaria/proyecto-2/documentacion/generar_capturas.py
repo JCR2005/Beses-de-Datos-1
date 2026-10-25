@@ -17,66 +17,57 @@ from PIL import Image, ImageDraw, ImageFont
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 SALIDA = os.path.join(BASE, 'capturas')
-D, H = "'2026-01-01'", "'2026-10-31'"
-LAPSO = '%s, %s' % (D, H)
 MAX_FILAS = 25
 
-OBJETIVOS = [
-    (1, 'Los 3 hospitales con mayor demanda en consulta externa', ['select * from fn_objetivo_01(%s);' % LAPSO]),
-    (2, 'Los 5 médicos de consulta externa con menor calificación', ['select * from fn_objetivo_02(%s);' % LAPSO]),
-    (3, 'Los 5 mejores médicos de emergencias', ['select * from fn_objetivo_03(%s);' % LAPSO]),
-    (4, 'Los 3 hospitales más eficientes en emergencias', ['select * from fn_objetivo_04(%s);' % LAPSO]),
-    (5, 'Los 3 cirujanos más eficientes', ['select * from fn_objetivo_05(%s);' % LAPSO]),
-    (6, 'Los 3 tipos de cirugía con mayores ingresos', ['select * from fn_objetivo_06(%s);' % LAPSO]),
-    (7, 'Los 3 hospitales con mayores ingresos en hospitalización', ['select * from fn_objetivo_07(%s);' % LAPSO]),
-    (8, 'Pagos en efectivo, crédito y débito por hospital y unidad', ['select * from fn_objetivo_08(%s);' % LAPSO]),
-    (9, 'Los 3 hospitales con mayor ingreso por visita', ['select * from fn_objetivo_09(%s);' % LAPSO]),
-    (10, 'Fecha con más decesos y unidad con más decesos por hospital', ['select * from fn_objetivo_10();']),
-    (11, 'Ingresos monetarios totales de cada hospital', ['select * from fn_objetivo_11(%s);' % LAPSO]),
-    (12, 'Edad promedio y sexo en emergencias por hospital y turno', ['select * from fn_objetivo_12(%s);' % LAPSO]),
-    (13, 'Citas por hospital, fecha, especialidad y sexo (primer trimestre)',
-     ["select * from fn_objetivo_13('2026-01-01', '2026-03-31');"]),
-    (14, 'Promedio de cuotas de pago por unidad en cada hospital', ['select * from fn_objetivo_14(%s);' % LAPSO]),
+CONSULTAS = os.path.join(BASE, '..', 'sql', 'consultas')
+
+TITULOS = {
+    1: 'Los 3 hospitales con mayor demanda en consulta externa',
+    2: 'Los 5 médicos de consulta externa con menor calificación',
+    3: 'Los 5 mejores médicos de emergencias',
+    4: 'Los 3 hospitales más eficientes en emergencias',
+    5: 'Los 3 cirujanos más eficientes',
+    6: 'Los 3 tipos de cirugía con mayores ingresos',
+    7: 'Los 3 hospitales con mayores ingresos en hospitalización',
+    8: 'Pagos en efectivo, crédito y débito por hospital y unidad',
+    9: 'Los 3 hospitales con mayor ingreso por visita',
+    10: 'Fecha con más decesos y unidad con más decesos por hospital',
+    11: 'Ingresos monetarios totales de cada hospital',
+    12: 'Edad promedio y sexo en emergencias por hospital y turno',
+    13: 'Citas por hospital, fecha, especialidad y sexo (primer trimestre)',
+    14: 'Promedio de cuotas de pago por unidad en cada hospital',
+    16: 'Cadena de supervisión hasta el director médico (CTE recursiva)',
+    17: 'Ranking por hospital y en toda la cadena (forma A y forma B)',
+    18: 'Pacientes atendidos en las 4 unidades (división relacional)',
+}
+
+
+def sentencias_del_archivo(numero):
+    """Las sentencias del archivo objetivo_XX.sql, sin las lineas de comentario."""
+    texto = open(os.path.join(CONSULTAS, 'objetivo_%02d.sql' % numero), encoding='utf-8').read()
+    lineas = [l for l in texto.splitlines() if not l.strip().startswith('--')]
+    return [s.strip() + ';' for s in '\n'.join(lineas).split(';') if s.strip()]
+
+
+OBJETIVOS = [(n, TITULOS[n], sentencias_del_archivo(n)) for n in sorted(TITULOS)] + [
     (15, 'Extensión del modelo: supertipo PERSONAL y cadena de mando', [
         """select p.tipo_personal, count(*) as personas, count(m.id_medico) as en_medico, count(e.id_enfermero) as en_enfermero
-  from personal p
-  left join medico m on m.id_medico = p.id_personal
-  left join enfermero e on e.id_enfermero = p.id_personal
- group by p.tipo_personal;""",
+from personal p
+left join medico m on m.id_medico = p.id_personal
+left join enfermero e on e.id_enfermero = p.id_personal
+group by p.tipo_personal;""",
         """select p.id_personal, p.nombres || ' ' || p.apellidos as medico, m.cargo,
        s.nombres || ' ' || s.apellidos as superior_directo
-  from personal p
-  join medico m on m.id_medico = p.id_personal
-  left join medico s on s.id_medico = m.id_medico_superior
- where p.id_hospital = 1 and m.tipo_medico <> 'externo'
- order by m.cargo, p.id_personal;"""]),
-    (16, 'Cadena de supervisión hasta el director médico (CTE recursiva)',
-     ['select * from fn_cadena_mando(1018);', 'select * from fn_cadena_mando(1046);']),
-    (17, 'Ranking por hospital y en toda la cadena (funciones de ventana)', [
-        'select * from fn_objetivo_17_ventana(%s) limit 12;' % LAPSO,
-        """select count(*) as filas_distintas_entre_las_dos_formas
-  from ((select * from fn_objetivo_17_ventana(%s)
-         except select * from fn_objetivo_17_correlacionada(%s))
-        union all
-        (select * from fn_objetivo_17_correlacionada(%s)
-         except select * from fn_objetivo_17_ventana(%s))) d;""" % (LAPSO, LAPSO, LAPSO, LAPSO)]),
-    (18, 'Pacientes atendidos en las 4 unidades (división relacional)', ['select * from fn_objetivo_18(%s);' % LAPSO]),
-    (19, 'Reporte de cirugías: original y reconstruido desde la propuesta en 3FN', [
-        'select * from propuesta_bloque_e.reporte_cirugia;',
-        """select ci.id_cirugia, cj.nombres || ' ' || cj.apellidos as cirujano, es.nombre as especialidad,
-       d.codigo_cie10, i.nombre as insumo, x.cantidad, ci.fecha
-  from propuesta_bloque_e.cirugia ci
-  join propuesta_bloque_e.cirujano cj on cj.id_cirujano = ci.id_cirujano
-  join propuesta_bloque_e.especialidad es on es.id_especialidad = cj.id_especialidad
-  join propuesta_bloque_e.diagnostico d on d.codigo_cie10 = ci.codigo_cie10
-  join propuesta_bloque_e.cirugia_insumo x on x.id_cirugia = ci.id_cirugia
-  join propuesta_bloque_e.insumo i on i.id_insumo = x.id_insumo
- order by ci.id_cirugia, i.nombre;"""]),
+from personal p
+inner join medico m on m.id_medico = p.id_personal
+left join medico s on s.id_medico = m.id_medico_superior
+where p.id_hospital = 1 and m.tipo_medico <> 'externo'
+order by m.cargo, p.id_personal;"""]),
     (20, 'Bitácora automática de cambios sensibles del personal', [
-        """select id_auditoria, fecha_hora, usuario_bd, usuario_aplicacion, tabla, id_registro,
+        """select id_auditoria, fecha_hora, usuario, tabla, id_registro,
        campo, valor_anterior, valor_nuevo
-  from auditoria_personal
- order by id_auditoria;"""]),
+from auditoria_personal
+order by id_auditoria;"""]),
 ]
 
 # ---------------------------------------------------------------- consulta

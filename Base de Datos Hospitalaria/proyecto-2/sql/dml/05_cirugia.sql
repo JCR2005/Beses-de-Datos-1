@@ -4,9 +4,7 @@
 -- Rangos de id: agendamientos 101-145; la cirugia usa el mismo id que su
 -- agendamiento; su ingreso y traslado, 3000 + n.
 
-begin;
 set role admin;
-set search_path to public;
 
 -- procedimientos de las especialidades quirurgicas que no tenian ninguno
 insert into tipo_cirugia (id_tipo_cirugia, nombre, id_especialidad) values
@@ -89,7 +87,7 @@ select a.id_agendamiento, a.id_agendamiento, a.id_medico_cirujano, t.nombre,
        'Tratar quirúrgicamente el padecimiento del paciente.', 'Procedimiento bajo la anestesia indicada en el agendamiento.',
        'Sangrado, infección y complicaciones anestésicas.', true,
        p.nombres || ' ' || p.apellidos,
-       case when fn_edad(p.fecha_nacimiento) < 18 then 'tutor' else 'paciente' end,
+       case when extract(year from age(p.fecha_nacimiento)) < 18 then 'tutor' else 'paciente' end,
        true, a.fecha_hora_solicitud::date
   from agendamiento_quirurgico a
   join tipo_cirugia t on t.id_tipo_cirugia = a.id_tipo_cirugia
@@ -208,4 +206,3 @@ select e.id_egreso, e.fecha_hora_egreso - interval '10 minutes', e.id_medico, e.
  where e.id_egreso > 3000 and e.codigo_egreso = 'vivo';
 
 reset role;
-commit;

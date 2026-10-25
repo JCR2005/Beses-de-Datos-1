@@ -1,8 +1,6 @@
 -- Proyecto 1 - BD Hospitales de Occidente
 -- 03_pacientes.sql : pacientes y encargados (datos FICTICIOS)
 
-set search_path to public;
-
 insert into paciente (id_paciente, numero_expediente, nombres, apellidos, fecha_nacimiento, sexo, dpi, telefono, id_municipio, area, id_estado_civil, numero_seguro_social) values
 (1, 'HG1-0001', 'María Fernanda', 'López García', '1988-04-12', 'Femenino', '2220123450123', '5551-1001', 1, 'Urbana', 2, 'IGSS-88432'),
 (2, 'HG1-0002', 'Jorge Luis', 'Ramírez Sosa', '1990-11-03', 'Masculino', '3330123450456', '5551-1002', 6, 'Rural', 1, null),

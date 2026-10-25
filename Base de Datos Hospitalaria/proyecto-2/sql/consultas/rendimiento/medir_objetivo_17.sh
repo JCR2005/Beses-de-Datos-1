@@ -4,6 +4,7 @@
 # Para cada escenario crea una copia de la base hospital, la infla con
 # inflar.sql y mide con EXPLAIN ANALYZE el tiempo de ejecucion de cada forma
 # (mediana de 3 corridas). La base entregada no se modifica.
+# Las dos formas se toman tal cual de ../objetivo_17.sql.
 #
 # Uso: ./medir_objetivo_17.sh   (requiere el contenedor hospital-db en marcha)
 # Salida: ../../../documentacion/rendimiento_objetivo_17.md
@@ -19,10 +20,22 @@ PSQL=(docker exec -i "$CONTENEDOR" psql -U hospital -v ON_ERROR_STOP=1 -q)
 # escenarios: medicos adicionales y calificaciones adicionales
 ESCENARIOS=("0 0" "500 10000" "2000 40000" "5000 100000")
 
-mediana_ms() {   # $1 = funcion a medir
+# cada forma es la consulta que sigue a su comentario "-- Forma A" / "-- Forma B"
+forma() {   # $1 = A o B
+    python3 - "$1" <<'PY'
+import sys
+texto = open('../objetivo_17.sql', encoding='utf-8').read()
+inicio = texto.index('-- Forma %s' % sys.argv[1])
+consulta = texto[inicio:].split(';')[0]
+print('\n'.join(l for l in consulta.splitlines() if not l.strip().startswith('--')))
+PY
+}
+FORMA_A=$(forma A)
+FORMA_B=$(forma B)
+
+mediana_ms() {   # $1 = consulta a medir
     for _ in 1 2 3; do
-        "${PSQL[@]}" -d "$COPIA" -At -c \
-          "explain (analyze, format json) select * from $1('2026-01-01', '2026-10-31')" |
+        "${PSQL[@]}" -d "$COPIA" -At -c "explain (analyze, format json) $1" |
           python3 -c "import json,sys; print(json.load(sys.stdin)[0]['Execution Time'])"
     done | sort -n | sed -n 2p
 }
@@ -43,10 +56,10 @@ for escenario in "${ESCENARIOS[@]}"; do
     if [ "$medicos" -gt 0 ]; then
         "${PSQL[@]}" -d "$COPIA" -v medicos="$medicos" -v calificaciones="$calificaciones" < inflar.sql
     fi
-    total_medicos=$("${PSQL[@]}" -d "$COPIA" -At -c "select count(*) from fn_promedio_medico('2026-01-01', '2026-10-31')")
+    total_medicos=$("${PSQL[@]}" -d "$COPIA" -At -c "select count(*) from ($FORMA_A) x")
     total_calif=$("${PSQL[@]}" -d "$COPIA" -At -c "select count(*) from calificacion where id_consulta is not null")
-    a=$(mediana_ms fn_objetivo_17_ventana)
-    b=$(mediana_ms fn_objetivo_17_correlacionada)
+    a=$(mediana_ms "$FORMA_A")
+    b=$(mediana_ms "$FORMA_B")
     razon=$(python3 -c "print(f'{$b / $a:.1f}x')")
     printf '| %s | %s | %.1f | %.1f | %s |\n' "$total_medicos" "$total_calif" "$a" "$b" "$razon" | tee -a "$SALIDA"
 done
@@ -67,20 +80,13 @@ done
   echo "Forma A (ventana): un solo recorrido y ordenamientos para cada \`rank()\`."
   echo
   echo '```'
-  "${PSQL[@]}" -d "$COPIA" -At -c "explain (analyze, costs off, timing off)
-    select pm.id_medico, rank() over (partition by pm.id_hospital order by pm.promedio), rank() over (order by pm.promedio)
-      from fn_promedio_medico('2026-01-01', '2026-10-31') pm"
+  "${PSQL[@]}" -d "$COPIA" -At -c "explain (analyze, costs off, timing off) $FORMA_A"
   echo '```'
   echo
   echo "Forma B (correlacionada): las dos subconsultas se ejecutan una vez por cada médico (loops)."
   echo
   echo '```'
-  "${PSQL[@]}" -d "$COPIA" -At -c "explain (analyze, costs off, timing off)
-    with pm as materialized (select * from fn_promedio_medico('2026-01-01', '2026-10-31'))
-    select p1.id_medico,
-           1 + (select count(*) from pm p2 where p2.id_hospital = p1.id_hospital and p2.promedio < p1.promedio),
-           1 + (select count(*) from pm p2 where p2.promedio < p1.promedio)
-      from pm p1"
+  "${PSQL[@]}" -d "$COPIA" -At -c "explain (analyze, costs off, timing off) $FORMA_B"
   echo '```'
 } >> "$SALIDA"
 

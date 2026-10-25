@@ -1,8 +1,6 @@
 -- Proyecto 1 - BD Hospitales de Occidente
 -- 07_facturacion.sql : insumos de hospitalizacion, facturas y pagos (datos FICTICIOS)
 
-set search_path to public;
-
 -- insumos usados durante los internamientos (suman al costo de hospitalizacion)
 insert into hospitalizacion_insumo (id_ingreso, id_insumo, cantidad, costo_unitario) values
 (3, 1, 8, 30.00),

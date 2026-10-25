@@ -1,36 +1,24 @@
--- Proyecto 2 - Objetivo 8
--- Total pagado en efectivo, tarjeta de credito y tarjeta de debito en cada
--- hospital, como la suma de los pagos de cada una de sus unidades.
---
--- La unidad de cada pago es la de la factura que paga (v_factura la obtiene
--- de la cita, el ingreso o la cirugia que la origino).
+-- Objetivo 8: total pagado en efectivo, tarjeta de credito y tarjeta de debito
+-- en cada hospital, sumando los pagos de cada una de sus unidades.
+-- La unidad de cada factura sale de su origen: la clinica de la cita, la unidad
+-- del ingreso o el quirofano de la cirugia (cada factura tiene solo uno).
+-- lapso: enero a octubre de 2026
 
-begin;
-set role admin;
-set search_path to public;
-
-create or replace function fn_objetivo_08(p_desde date, p_hasta date)
-returns table (hospital varchar, unidad varchar, efectivo numeric, tarjeta_credito numeric, tarjeta_debito numeric)
-language sql stable
-as $$
-    select h.nombre, vf.tipo_unidad,
-           coalesce(sum(p.monto) filter (where mp.nombre = 'Efectivo'), 0),
-           coalesce(sum(p.monto) filter (where mp.nombre = 'Tarjeta de crédito'), 0),
-           coalesce(sum(p.monto) filter (where mp.nombre = 'Tarjeta de débito'), 0)
-      from pago p
-      join metodo_pago mp on mp.id_metodo_pago = p.id_metodo_pago
-      join v_factura vf on vf.id_factura = p.id_factura
-      join hospital h on h.id_hospital = vf.id_hospital
-     where p.fecha_pago between p_desde and p_hasta
-     group by h.id_hospital, h.nombre, vf.tipo_unidad
-     order by h.id_hospital, vf.tipo_unidad;
-$$;
-
-comment on function fn_objetivo_08(date, date) is 'Objetivo 8: pagos por método (efectivo, crédito, débito) por hospital y unidad.';
-
-reset role;
-commit;
-
-set role visor;
-select * from fn_objetivo_08('2026-01-01', '2026-10-31');
-reset role;
+select h.nombre as hospital,
+       u.tipo_unidad as unidad,
+       sum(case when mp.nombre = 'Efectivo' then p.monto else 0 end) as efectivo,
+       sum(case when mp.nombre = 'Tarjeta de crédito' then p.monto else 0 end) as tarjeta_credito,
+       sum(case when mp.nombre = 'Tarjeta de débito' then p.monto else 0 end) as tarjeta_debito
+from pago p
+inner join metodo_pago mp on mp.id_metodo_pago = p.id_metodo_pago
+inner join factura f on f.id_factura = p.id_factura
+left join cita c on c.id_cita = f.id_cita
+left join clinica cl on cl.id_clinica = c.id_clinica
+left join ingreso i on i.id_ingreso = f.id_ingreso
+left join cirugia ci on ci.id_cirugia = f.id_cirugia
+left join quirofano q on q.id_quirofano = ci.id_quirofano
+inner join unidad_medica u on u.id_unidad in (cl.id_unidad, i.id_unidad, q.id_unidad)
+inner join hospital h on h.id_hospital = u.id_hospital
+where p.fecha_pago between '2026-01-01' and '2026-10-31'
+group by h.id_hospital, h.nombre, u.tipo_unidad
+order by h.id_hospital, u.tipo_unidad;

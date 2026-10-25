@@ -1,8 +1,6 @@
 -- Proyecto 1 - BD Hospitales de Occidente
 -- 11_calificaciones.sql : archivo de calificaciones de la calidad del servicio
 
-set search_path to public;
-
 -- calificacion de 1 a 5 a un hospital, medico, enfermero o encargado
 -- (arco exclusivo: cada fila califica exactamente a uno de los cuatro)
 create table calificacion (

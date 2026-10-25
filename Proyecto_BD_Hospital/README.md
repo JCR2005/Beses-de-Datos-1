@@ -9,17 +9,17 @@ en cuotas y archivo de calificaciones de la calidad del servicio.
 | Carpeta | Contenido |
 |---------|-----------|
 | `modelo/` | Modelo en notación Barker: `modelo_barker.drawio` (editable), `modelo_barker.png` (completo) y `modelo_barker_parte1-3.png` (en franjas para imprimir). `generar_modelo.py` los genera a partir del esquema |
-| `sql/ddl/` | Definición de la base: tablas, CHECK de dominio, acciones referenciales, vistas, reglas de negocio (disparadores), índices y descripciones |
+| `sql/ddl/` | Definición de la base: tablas, CHECK de dominio y acciones referenciales |
 | `sql/dml/` | Inserciones de datos ficticios de prueba |
-| `sql/dcl/` | Roles `visor` (solo lectura) y `admin` (privilegios completos) |
+| `sql/dcl/` | Roles `visor` (solo lectura) y `admin` (privilegios completos y dueño de las tablas) |
 | `backup/` | Respaldo con pg_dump: `hospital.backup` (formato custom) y `hospital.sql` (texto plano) |
-| `documentacion/` | `Diccionario_Datos_Hospital.pdf` con el modelo, el diccionario de datos y todas las sentencias SQL. `generar_diccionario.py` lo genera; `justificaciones.py` contiene la justificación de cada llave foránea, que el enunciado pide solo en el PDF |
+| `documentacion/` | `Diccionario_Datos_Hospital.pdf` con el modelo, el diccionario de datos y todas las sentencias SQL. `generar_diccionario.py` lo genera; `descripciones.py` contiene la descripción de cada tabla y columna, y `justificaciones.py` la justificación de cada llave foránea; el enunciado pide ambas solo en el diccionario del PDF |
 
 ## Scripts DDL
 
 | Script | Contenido |
 |--------|-----------|
-| `00_esquema.sql` | Convenciones, zona horaria y función `fn_edad` |
+| `00_esquema.sql` | Convenciones y zona horaria |
 | `01_geografia.sql` | Departamentos y municipios |
 | `02_hospital.sql` | Hospitales, unidades, servicios, camillas y quirófanos |
 | `03_personal.sql` | Especialidades, médicos, enfermeros y turnos de emergencia |
@@ -31,16 +31,12 @@ en cuotas y archivo de calificaciones de la calidad del servicio.
 | `09_hospitalizacion.sql` | Insumos de hospitalización |
 | `10_facturacion.sql` | Facturas y pagos en cuotas |
 | `11_calificaciones.sql` | Archivo de calificaciones |
-| `12_vistas.sql` | Datos derivados: edad, días hospitalizado, hospital y saldo de cada factura |
-| `13_reglas_negocio.sql` | Disparadores para las reglas que involucran más de una tabla |
-| `14_indices.sql` | Índices en llaves foráneas y fechas |
-| `15_comentarios.sql` | Descripción de cada tabla y columna (la usa el diccionario) |
 
 ## Cómo reconstruir la base
 
 Sobre una base vacía (`createdb hospital`), ejecutar en orden:
 
-1. `sql/ddl/` (00 → 15)
+1. `sql/ddl/` (00 → 11)
 2. `sql/dml/` (01 → 99)
 3. `sql/dcl/01_roles.sql`, y luego asignar contraseñas con `\password visor` y `\password admin`
 
@@ -66,12 +62,12 @@ El Proyecto 2 extiende esta misma base y está en
 | Carpeta | Contenido |
 |---------|-----------|
 | `modelo/` | Modelo extendido en notación Barker (draw.io + imagen) |
-| `sql/ddl/` | Migración: admin como dueño, supertipo PERSONAL, cadena de mando y descripciones |
+| `sql/ddl/` | Migración: supertipo PERSONAL, cadena de mando, catálogos, clínicas y laboratorio |
 | `sql/dml/` | Ampliación de datos de enero a octubre de 2026 |
-| `sql/consultas/` | Una función por objetivo y la medición de rendimiento del objetivo 17 |
+| `sql/consultas/` | Una consulta SELECT por objetivo y la medición de rendimiento del objetivo 17 |
 | `sql/auditoria/` | Bitácora automática de cambios sensibles y su demostración |
 | `orm/` | Objetivos 8, 11 y 18 con Java y JPA (Hibernate) |
 | `backup/` | Respaldo pg_dump de la base extendida |
 | `documentacion/` | PDF con diccionario de datos, los 20 objetivos y sus capturas |
 
-Después de aplicar el Proyecto 2, el dueño de los objetos del esquema es el rol `admin`.
+El dueño de las tablas es el rol `admin` (lo asigna `sql/dcl/01_roles.sql`).

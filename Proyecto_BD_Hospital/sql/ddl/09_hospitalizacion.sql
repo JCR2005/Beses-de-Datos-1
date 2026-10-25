@@ -1,8 +1,6 @@
 -- Proyecto 1 - BD Hospitales de Occidente
 -- 09_hospitalizacion.sql : insumos usados durante la hospitalizacion
 
-set search_path to public;
-
 -- insumos usados en un internamiento, con el costo al momento de usarlos (asociativa M:N)
 create table hospitalizacion_insumo (
     id_ingreso integer not null references ingreso(id_ingreso)

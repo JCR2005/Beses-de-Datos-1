@@ -4,9 +4,7 @@
 -- Se emite una factura por cada proceso terminado, con el costo que fija el
 -- enunciado para cada unidad, y se pagan las cuotas vencidas al 20 de octubre.
 
-begin;
 set role admin;
-set search_path to public;
 
 -- consulta externa: el costo de la cita, en un solo pago en la recepcion del medico
 insert into factura (id_cita, fecha_emision, descripcion, total, numero_cuotas)
@@ -70,4 +68,3 @@ select f.id_factura, k.cuota,
  where f.id_factura > 5;
 
 reset role;
-commit;

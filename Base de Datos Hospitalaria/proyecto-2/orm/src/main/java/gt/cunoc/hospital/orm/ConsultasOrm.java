@@ -5,7 +5,6 @@ import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.time.Period;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -14,8 +13,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Objetivos 8, 11 y 18 escritos con JPA (JPQL), equivalentes a las funciones SQL
- * fn_objetivo_08, fn_objetivo_11 y fn_objetivo_18.
+ * Objetivos 8, 11 y 18 escritos con JPA (JPQL), equivalentes a las consultas SQL de
+ * sql/consultas/objetivo_08.sql, objetivo_11.sql y objetivo_18.sql.
  *
  * Todos los valores que vienen de afuera (fechas, nombres de metodo de pago) se pasan como
  * parametros con nombre (:desde, :hasta, ...). Hibernate los envia en una sentencia preparada,
@@ -42,23 +41,29 @@ public class ConsultasOrm {
     }
 
     /** Fila del objetivo 18: paciente atendido en las 4 unidades. */
-    public record PacienteFiel(int idPaciente, String numeroExpediente, String paciente, int edad, String sexo) {
+    public record PacienteFiel(int idPaciente, String numeroExpediente, String nombres, String apellidos, String sexo) {
     }
 
     /** Objetivo 8: total pagado en efectivo, credito y debito por hospital y unidad. */
     public List<PagosPorMetodo> objetivo08(LocalDate desde, LocalDate hasta) {
         List<Object[]> filas = em.createQuery("""
-                select h.nombre, f.tipoUnidad,
+                select h.nombre, u.tipoUnidad,
                        sum(case when m.nombre = :efectivo then p.monto else 0 end),
                        sum(case when m.nombre = :credito then p.monto else 0 end),
                        sum(case when m.nombre = :debito then p.monto else 0 end)
                   from Pago p
                   join p.metodoPago m
                   join p.factura f
-                  join f.hospital h
+                  left join f.cita c
+                  left join c.clinica cl
+                  left join f.ingreso i
+                  left join f.cirugia ci
+                  left join ci.quirofano q
+                  join UnidadMedica u on u.id in (cl.unidad.id, i.unidad.id, q.unidad.id)
+                  join u.hospital h
                  where p.fechaPago between :desde and :hasta
-                 group by h.id, h.nombre, f.tipoUnidad
-                 order by h.id, f.tipoUnidad
+                 group by h.id, h.nombre, u.tipoUnidad
+                 order by h.id, u.tipoUnidad
                 """, Object[].class)
                 .setParameter("efectivo", "Efectivo")
                 .setParameter("credito", "Tarjeta de crédito")
@@ -77,10 +82,16 @@ public class ConsultasOrm {
     public List<IngresosHospital> objetivo11(LocalDate desde, LocalDate hasta) {
         Map<Integer, Object[]> facturado = new HashMap<>();
         for (Object[] f : em.createQuery("""
-                select f.hospital.id, count(f), sum(f.total)
+                select u.hospital.id, count(f), sum(f.total)
                   from Factura f
+                  left join f.cita c
+                  left join c.clinica cl
+                  left join f.ingreso i
+                  left join f.cirugia ci
+                  left join ci.quirofano q
+                  join UnidadMedica u on u.id in (cl.unidad.id, i.unidad.id, q.unidad.id)
                  where f.fechaEmision >= :desde and f.fechaEmision < :hasta
-                 group by f.hospital.id
+                 group by u.hospital.id
                 """, Object[].class)
                 .setParameter("desde", inicioDelDia(desde))
                 .setParameter("hasta", inicioDelDia(hasta.plusDays(1)))
@@ -89,10 +100,17 @@ public class ConsultasOrm {
         }
         Map<Integer, BigDecimal> cobrado = new HashMap<>();
         for (Object[] f : em.createQuery("""
-                select p.factura.hospital.id, sum(p.monto)
+                select u.hospital.id, sum(p.monto)
                   from Pago p
+                  join p.factura f
+                  left join f.cita c
+                  left join c.clinica cl
+                  left join f.ingreso i
+                  left join f.cirugia ci
+                  left join ci.quirofano q
+                  join UnidadMedica u on u.id in (cl.unidad.id, i.unidad.id, q.unidad.id)
                  where p.fechaPago between :desde and :hasta
-                 group by p.factura.hospital.id
+                 group by u.hospital.id
                 """, Object[].class)
                 .setParameter("desde", desde)
                 .setParameter("hasta", hasta)
@@ -120,7 +138,7 @@ public class ConsultasOrm {
         OffsetDateTime inicio = inicioDelDia(desde);
         OffsetDateTime fin = inicioDelDia(hasta.plusDays(1));
         List<Object[]> filas = em.createQuery("""
-                select p.id, p.numeroExpediente, p.nombres, p.apellidos, p.fechaNacimiento, p.sexo
+                select p.id, p.numeroExpediente, p.nombres, p.apellidos, p.sexo
                   from Paciente p
                  where exists (select co.id from Consulta co
                                 where co.cita.paciente = p
@@ -138,11 +156,9 @@ public class ConsultasOrm {
                 .setParameter("fin", fin)
                 .setParameter("consultaExterna", "Consulta Externa")
                 .getResultList();
-        LocalDate hoy = LocalDate.now(GUATEMALA);
         List<PacienteFiel> resultado = new ArrayList<>();
         for (Object[] f : filas) {
-            int edad = Period.between((LocalDate) f[4], hoy).getYears();
-            resultado.add(new PacienteFiel((Integer) f[0], (String) f[1], f[2] + " " + f[3], edad, (String) f[5]));
+            resultado.add(new PacienteFiel((Integer) f[0], (String) f[1], (String) f[2], (String) f[3], (String) f[4]));
         }
         return resultado;
     }

@@ -4,7 +4,7 @@ Hospital                             Unidad                Efectivo  Tarjeta cre
 Hibernate: 
     select
         h1_0.nombre,
-        f1_0.tipo_unidad,
+        um1_0.tipo_unidad,
         sum(case 
             when mp1_0.nombre=? 
                 then p1_0.monto 
@@ -26,20 +26,38 @@ join
     metodo_pago mp1_0 
         on mp1_0.id_metodo_pago=p1_0.id_metodo_pago 
 join
-    v_factura f1_0 
+    factura f1_0 
         on f1_0.id_factura=p1_0.id_factura 
+left join
+    cita c1_0 
+        on c1_0.id_cita=f1_0.id_cita 
+left join
+    clinica c2_0 
+        on c2_0.id_clinica=c1_0.id_clinica 
+left join
+    ingreso i1_0 
+        on i1_0.id_ingreso=f1_0.id_ingreso 
+left join
+    cirugia c3_0 
+        on c3_0.id_cirugia=f1_0.id_cirugia 
+left join
+    quirofano q1_0 
+        on q1_0.id_quirofano=c3_0.id_quirofano 
+join
+    unidad_medica um1_0 
+        on um1_0.id_unidad in (c2_0.id_unidad, i1_0.id_unidad, q1_0.id_unidad) 
 join
     hospital h1_0 
-        on h1_0.id_hospital=f1_0.id_hospital 
+        on h1_0.id_hospital=um1_0.id_hospital 
 where
     p1_0.fecha_pago between ? and ? 
 group by
     h1_0.id_hospital,
     h1_0.nombre,
-    f1_0.tipo_unidad 
+    um1_0.tipo_unidad 
 order by
     h1_0.id_hospital,
-    f1_0.tipo_unidad
+    um1_0.tipo_unidad
 Hospital General de Occidente        Cirugía               16931.80         37625.24        14796.35
 Hospital General de Occidente        Consulta Externa       2940.75          3511.25         2710.75
 Hospital General de Occidente        Emergencias            9633.33         13433.33         9633.34
@@ -65,29 +83,65 @@ Objetivo 11 - ingresos por hospital, del 2026-01-01 al 2026-10-31
 Hospital                              Facturas        Facturado        Cobrado      Pendiente
 Hibernate: 
     select
-        f1_0.id_hospital,
+        um1_0.id_hospital,
         count(f1_0.id_factura),
         sum(f1_0.total) 
     from
-        v_factura f1_0 
+        factura f1_0 
+    left join
+        cita c1_0 
+            on c1_0.id_cita=f1_0.id_cita 
+    left join
+        clinica c2_0 
+            on c2_0.id_clinica=c1_0.id_clinica 
+    left join
+        ingreso i1_0 
+            on i1_0.id_ingreso=f1_0.id_ingreso 
+    left join
+        cirugia c3_0 
+            on c3_0.id_cirugia=f1_0.id_cirugia 
+    left join
+        quirofano q1_0 
+            on q1_0.id_quirofano=c3_0.id_quirofano 
+    join
+        unidad_medica um1_0 
+            on um1_0.id_unidad in (c2_0.id_unidad, i1_0.id_unidad, q1_0.id_unidad) 
     where
         f1_0.fecha_emision>=? 
         and f1_0.fecha_emision<? 
     group by
-        f1_0.id_hospital
+        um1_0.id_hospital
 Hibernate: 
     select
-        f1_0.id_hospital,
+        um1_0.id_hospital,
         sum(p1_0.monto) 
     from
         pago p1_0 
     join
-        v_factura f1_0 
+        factura f1_0 
             on f1_0.id_factura=p1_0.id_factura 
+    left join
+        cita c1_0 
+            on c1_0.id_cita=f1_0.id_cita 
+    left join
+        clinica c2_0 
+            on c2_0.id_clinica=c1_0.id_clinica 
+    left join
+        ingreso i1_0 
+            on i1_0.id_ingreso=f1_0.id_ingreso 
+    left join
+        cirugia c3_0 
+            on c3_0.id_cirugia=f1_0.id_cirugia 
+    left join
+        quirofano q1_0 
+            on q1_0.id_quirofano=c3_0.id_quirofano 
+    join
+        unidad_medica um1_0 
+            on um1_0.id_unidad in (c2_0.id_unidad, i1_0.id_unidad, q1_0.id_unidad) 
     where
         p1_0.fecha_pago between ? and ? 
     group by
-        f1_0.id_hospital
+        um1_0.id_hospital
 Hibernate: 
     select
         h1_0.id_hospital,
@@ -144,7 +198,7 @@ Hibernate:
                 and i1_0.fecha_hora_ingreso<?)) 
     order by
         p1_0.id_paciente
-   2 HG1-0002   Jorge Luis Ramírez Sosa         35 Masculino 
+   2 HG1-0002   Jorge Luis Ramírez Sosa         36 Masculino 
    3 HG1-0003   Pedro Gómez Aguilar             51 Masculino 
    5 HG1-0005   Carlos De León Ortiz            44 Masculino 
    9 HG5-0009   Andrés Cruz Sic                 58 Masculino 
@@ -155,7 +209,7 @@ Hibernate:
   22 HG3-0022   Gabriela Pérez Tum              65 Femenino  
   23 HG4-0023   Pedro Morales Chávez            52 Masculino 
   24 HG5-0024   Verónica Hernández Paz          40 Femenino  
-  25 HG1-0025   Ricardo Castillo Lima           27 Masculino 
+  25 HG1-0025   Ricardo Castillo Lima           28 Masculino 
   26 HG2-0026   Julia Ramírez Ixcot             15 Femenino  
   27 HG3-0027   Fernando Gómez Pop               3 Masculino 
   28 HG4-0028   Daniela Méndez Barrios          74 Femenino  

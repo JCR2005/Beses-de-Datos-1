@@ -1,0 +1,27 @@
+Restaurar la base hospital (correr dentro de la carpeta proyecto-2/backup)
+docker exec -it hospital-db psql -U hospital -d hospital
+
+1. Borrar la base
+docker exec hospital-db dropdb -U hospital --force hospital
+
+2. Crear los usuarios (si ya existen, ignorar el error)
+docker exec hospital-db psql -U hospital -d postgres -c "create role visor login;" -c "create role admin login;"
+docker exec -it hospital-db psql -U hospital -d postgres -c "\password visor"
+docker exec -it hospital-db psql -U hospital -d postgres -c "\password admin"
+
+3. Crear la base vacia
+docker exec hospital-db createdb -U hospital hospital
+
+4. Hora de Guatemala y permisos de conexion
+docker exec hospital-db psql -U hospital -d postgres -c "alter database hospital set timezone to 'America/Guatemala';" -c "revoke all on database hospital from public;" -c "grant connect on database hospital to visor, admin;"
+
+5. Restaurar
+docker exec -i hospital-db pg_restore -U hospital -d hospital < hospital_p2.backup
+
+6. Comprobar
+docker exec hospital-db psql -U visor -d hospital -c "select count(*) from paciente;"
+
+
+psql -h localhost -p 5433 -U visor -d hospital
+
+psql -h localhost -p 5433 -U admin -d hospital

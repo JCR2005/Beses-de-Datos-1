@@ -1,8 +1,6 @@
 -- Proyecto 1 - BD Hospitales de Occidente
 -- 08_cirugia.sql : agendamiento, evaluacion preoperatoria, cirugia y su registro
 
-set search_path to public;
-
 -- ============================================================
 -- catalogos de cirugia
 -- ============================================================

@@ -5,9 +5,7 @@
 -- carga siempre produce los mismos datos. Rangos de id: citas 101-320; la
 -- consulta y la receta usan el mismo id que su cita.
 
-begin;
 set role admin;
-set search_path to public;
 
 -- diagnosticos frecuentes en consulta externa (CIE-10)
 insert into diagnostico (id_diagnostico, codigo_cie10, descripcion) values
@@ -119,4 +117,3 @@ select pe.id_paciente, date '2026-03-01' + pe.id_encargado % 200, 3 + pe.id_enca
  where pe.id_paciente between 8 and 30 and pe.id_parentesco in (1, 2);
 
 reset role;
-commit;

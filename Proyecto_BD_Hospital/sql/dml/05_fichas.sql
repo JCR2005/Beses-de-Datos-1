@@ -1,8 +1,6 @@
 -- Proyecto 1 - BD Hospitales de Occidente
 -- 05_fichas.sql : ingresos, egresos y traslados (datos FICTICIOS)
 
-set search_path to public;
-
 -- ingresos a emergencias (con turno y triage), cirugia (con quirofano) y hospitalizacion (con camilla)
 insert into ingreso (id_ingreso, id_paciente, id_unidad, id_servicio, id_medico_encargado, id_camilla, id_quirofano, id_turno, fecha_hora_ingreso, motivo_ingreso, diagnostico_presuntivo, prioridad_triage, turnos_espera) values
 (1, 3, 12, 3, 1001, 25, null, 1, '2026-08-09 22:10-06', 'Politraumatismo por accidente de tránsito.', 'Traumatismo craneoencefálico leve; fractura de brazo derecho.', 2, 0),

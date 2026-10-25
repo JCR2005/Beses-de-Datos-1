@@ -28,4 +28,18 @@ JUSTIFICACIONES_P2 = {
         'Relación recursiva. DELETE SET NULL: si el jefe deja el hospital, sus subordinados quedan sin superior '
         'hasta que se les asigne otro, sin perder su historia ni bloquear la baja. UPDATE CASCADE: si cambiara la '
         'llave del jefe, sus subordinados lo siguen.',
+
+    # catalogos de 03_catalogos.sql: no se borra un valor de catalogo que esta en uso
+    ('medicamento', 'forma_farmaceutica'): 'DELETE RESTRICT: no se borra una forma farmacéutica que usa algún medicamento. UPDATE CASCADE: si cambia el código, los medicamentos lo siguen.',
+    ('instrumento', 'funcion'): 'DELETE RESTRICT: no se borra una función que tiene instrumentos. UPDATE CASCADE: si cambia el código, los instrumentos lo siguen.',
+    ('equipo', 'funcion'): 'DELETE RESTRICT: no se borra una función que tiene equipos. UPDATE CASCADE: si cambia el código, los equipos lo siguen.',
+    ('chequeo_preanestesico', 'clasificacion_asa'): 'DELETE RESTRICT: la clase ASA es parte de la historia clínica del paciente. UPDATE CASCADE: si cambia el código, los chequeos lo siguen.',
+    ('medico', 'tipo_medico'): 'DELETE RESTRICT: no se borra una modalidad que tienen médicos. UPDATE CASCADE: si cambia el código, los médicos lo siguen.',
+    ('cita', 'medio_asignacion'): 'DELETE RESTRICT: no se borra un medio con el que se asignaron citas. UPDATE CASCADE: si cambia el código, las citas lo siguen.',
+    # tablas de 04_laboratorio_y_clinicas.sql
+    ('clinica', 'id_unidad'): 'DELETE RESTRICT: no se borra una unidad que tiene clínicas con citas. UPDATE CASCADE: la clínica sigue a su unidad.',
+    ('cita', 'id_clinica'): 'DELETE RESTRICT: no se borra una clínica donde ya hubo citas, es parte de la historia. UPDATE CASCADE: la cita sigue a su clínica.',
+    ('orden_laboratorio', 'id_consulta'): 'DELETE RESTRICT: la orden es parte de la historia clínica de la consulta. UPDATE CASCADE: la orden sigue a su consulta.',
+    ('orden_examen', 'id_orden'): 'DELETE CASCADE: los exámenes pedidos no existen sin su orden. UPDATE CASCADE: siguen a su orden.',
+    ('orden_examen', 'id_examen'): 'DELETE RESTRICT: no se borra un examen del catálogo que ya fue ordenado. UPDATE CASCADE: si cambia el id, las órdenes lo siguen.',
 }

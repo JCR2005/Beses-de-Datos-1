@@ -5,9 +5,7 @@
 -- entre varios hospitales, y personal suficiente para turnos, consultas y
 -- cirugias en todos ellos, con su cadena de mando.
 
-begin;
 set role admin;
-set search_path to public;
 
 -- ============================================================
 -- red de hospitales
@@ -92,8 +90,13 @@ insert into personal (id_personal, tipo_personal, nombres, apellidos, dpi, telef
 (2019, 'enfermero', 'Edwin', 'Coj Lacán', '2001123450219', '5552-2019', '1 calle 5-25, zona 1', 11, 'Urbana', 5, '2024-10-07', 3800.00, 'operativo'),
 (2020, 'enfermero', 'Vilma', 'Ixcoy Boj', '2001123450220', '5552-2020', '9 avenida 4-12, zona 2', 1, 'Urbana', 1, '2018-02-26', 7200.00, 'operativo');
 
--- subtipo medico: nombres, DPI, hospital y demas datos comunes los copia el disparador desde personal
-insert into medico (id_medico, id_especialidad, tipo_medico, costo_primera_consulta, horario_inicio, horario_fin) values
+-- subtipo medico: los datos comunes (nombres, DPI, hospital...) se toman de personal
+insert into medico (id_medico, nombres, apellidos, dpi, telefono, id_hospital, id_municipio, area,
+                    id_especialidad, tipo_medico, costo_primera_consulta, horario_inicio, horario_fin)
+select p.id_personal, p.nombres, p.apellidos, p.dpi, p.telefono, p.id_hospital, p.id_municipio, p.area,
+       d.id_especialidad, d.tipo_medico, d.costo, d.inicio::time, d.fin::time
+  from personal p
+ inner join (values
 (1031, 307, 'general', 170.00, '08:00', '12:00'),
 (1032, 307, 'general', 160.00, '08:00', '12:00'),
 (1033, 301, 'especialista', 230.00, '08:00', '11:30'),
@@ -114,10 +117,13 @@ insert into medico (id_medico, id_especialidad, tipo_medico, costo_primera_consu
 (1048, 307, 'general', 145.00, '08:00', '12:00'),
 (1049, 312, 'especialista', 200.00, '08:00', '12:00'),
 (1050, 324, 'especialista', null, null, null),
-(1051, 311, 'especialista', 160.00, '09:00', '12:00');
+(1051, 311, 'especialista', 160.00, '09:00', '12:00')
+       ) as d(id_medico, id_especialidad, tipo_medico, costo, inicio, fin) on d.id_medico = p.id_personal;
 
-insert into enfermero (id_enfermero, tipo)
-select id_personal, case when salario < 5000 then 'practicante' else 'registrado' end
+-- subtipo enfermero: tambien con sus datos comunes tomados de personal
+insert into enfermero (id_enfermero, nombres, apellidos, dpi, telefono, id_hospital, tipo)
+select id_personal, nombres, apellidos, dpi, telefono, id_hospital,
+       case when salario < 5000 then 'practicante' else 'registrado' end
   from personal
  where tipo_personal = 'enfermero'
    and id_personal not in (select id_enfermero from enfermero);
@@ -154,11 +160,7 @@ update personal p
   from medico m
  where m.id_medico = p.id_personal and m.cargo in ('director_medico','jefe_servicio');
 
--- el contador del supertipo sigue despues del mayor id usado
-do $$
-begin
-    perform setval(pg_get_serial_sequence('personal', 'id_personal'), (select max(id_personal) from personal));
-end $$;
+-- el ultimo id usado es el 2020: el contador sigue en el 2021
+alter table personal alter column id_personal restart with 2021;
 
 reset role;
-commit;

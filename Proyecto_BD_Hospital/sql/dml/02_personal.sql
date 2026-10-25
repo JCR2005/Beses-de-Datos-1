@@ -1,8 +1,6 @@
 -- Proyecto 1 - BD Hospitales de Occidente
 -- 02_personal.sql : especialidades, medicos, enfermeros y turnos de emergencia (datos FICTICIOS)
 
-set search_path to public;
-
 -- 301-314: las 14 especialidades de consulta externa; 315-329: las quirurgicas del enunciado
 insert into especialidad (id_especialidad, nombre, tipo) values
 (301, 'Cardiología', 'clinica'), (302, 'Dermatología', 'clinica'), (303, 'Fisioterapia', 'clinica'),

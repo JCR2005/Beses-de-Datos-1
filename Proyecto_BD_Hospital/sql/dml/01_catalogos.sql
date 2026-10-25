@@ -4,8 +4,6 @@
 -- Los datos se cargan con id fijo para que las referencias cruzadas sean
 -- legibles; 99_secuencias.sql ajusta los identity al final.
 
-set search_path to public;
-
 -- ============================================================
 -- geografia
 -- ============================================================

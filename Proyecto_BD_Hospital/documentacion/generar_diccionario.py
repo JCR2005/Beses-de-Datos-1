@@ -3,8 +3,8 @@
 """Genera el documento PDF del Proyecto 1: modelo, diccionario de datos y sentencias SQL.
 
 El diccionario se arma leyendo el catalogo de la base (tipos, nulos, llaves,
-acciones referenciales y los COMMENT de sql/ddl/15_comentarios.sql). La
-justificacion de cada llave foranea esta en justificaciones.py.
+acciones referenciales). La descripcion de cada tabla y columna esta en
+descripciones.py y la justificacion de cada llave foranea en justificaciones.py.
 
 Conexion: variables PGHOST, PGPORT, PGUSER, PGDATABASE y PGPASSWORD (o ~/.pgpass).
 """
@@ -31,6 +31,7 @@ OUT = os.path.join(BASE, 'Diccionario_Datos_Hospital.pdf')
 IMG = os.path.join(PROY, 'modelo', 'modelo_barker.png')
 sys.path.insert(0, BASE)
 from justificaciones import JUSTIFICACIONES  # noqa: E402
+from descripciones import COLUMNAS, TABLAS  # noqa: E402
 
 ACCION = {'a': 'NO ACTION', 'r': 'RESTRICT', 'c': 'CASCADE', 'n': 'SET NULL', 'd': 'SET DEFAULT'}
 
@@ -48,20 +49,19 @@ def psql(sql):
 
 
 def leer_catalogo():
-    tablas = {t: d for t, d in psql("""
-        select relname, coalesce(obj_description(oid, 'pg_class'), '')
-          from pg_class where relnamespace = 'public'::regnamespace and relkind = 'r'""")}
+    tablas = {t: TABLAS.get(t, '') for (t,) in psql("""
+        select relname from pg_class where relnamespace = 'public'::regnamespace and relkind = 'r'""")}
     columnas = {}
-    for t, c, tipo, nn, pk, desc in psql("""
+    for t, c, tipo, nn, pk in psql("""
         select c.relname, a.attname, format_type(a.atttypid, a.atttypmod), a.attnotnull::int,
                exists(select 1 from pg_index i where i.indrelid = c.oid and i.indisprimary
-                      and a.attnum = any(i.indkey))::int,
-               coalesce(col_description(c.oid, a.attnum), '')
+                      and a.attnum = any(i.indkey))::int
           from pg_class c join pg_attribute a on a.attrelid = c.oid
          where c.relnamespace = 'public'::regnamespace and c.relkind = 'r'
            and a.attnum > 0 and not a.attisdropped
          order by c.relname, a.attnum"""):
-        columnas.setdefault(t, []).append({'col': c, 'tipo': tipo, 'nn': nn == '1', 'pk': pk == '1', 'desc': desc})
+        columnas.setdefault(t, []).append({'col': c, 'tipo': tipo, 'nn': nn == '1', 'pk': pk == '1',
+                                       'desc': COLUMNAS.get((t, c), '')})
     fks = {}
     for t, c, padre, borrar, actualizar in psql("""
         select f.conrelid::regclass::text, a.attname, f.confrelid::regclass::text,
@@ -124,9 +124,7 @@ def introduccion(S, tablas, fks, checks):
                'de la calidad del servicio. Se implementó en PostgreSQL 18.', BODY))
     S.append(p('Resumen del esquema', H2))
     resumen = [['Tablas', str(len(tablas))], ['Llaves foráneas', str(len(fks))],
-               ['Restricciones CHECK', str(sum(len(v) for v in checks.values()))],
-               ['Vistas', 'v_paciente, v_consulta, v_estancia, v_cirugia, v_factura'],
-               ['Reglas entre tablas', 'disparadores en sql/ddl/13_reglas_negocio.sql']]
+               ['Restricciones CHECK', str(sum(len(v) for v in checks.values()))]]
     t = Table([[p('<b>%s</b>' % a, BODY), p(b, BODY)] for a, b in resumen], colWidths=[5 * cm, 11 * cm])
     t.setStyle(TableStyle([('GRID', (0, 0), (-1, -1), 0.3, colors.grey)]))
     S.append(t)
@@ -135,8 +133,8 @@ def introduccion(S, tablas, fks, checks):
         'Las llaves primarias son identity y se llaman <i>id_&lt;tabla&gt;</i>; la llave foránea usa el mismo '
         'nombre que la PK a la que apunta, o agrega el rol cuando una tabla apunta dos veces a la misma '
         '(id_medico_cirujano, id_unidad_origen).',
-        'No se guardan datos derivables: la edad se calcula con fn_edad y los días hospitalizado, el hospital '
-        'de cada factura y lo pagado se obtienen en vistas. Así no quedan datos desactualizados.',
+        'No se guardan datos derivables: la edad, los días hospitalizado, el hospital de cada factura y lo '
+        'pagado se calculan en las consultas a partir de los datos guardados. Así no quedan datos desactualizados.',
         'Los valores que se repiten (estado civil, parentesco, medicamento, diagnóstico CIE-10, tipo de cirugía, '
         'tipo de anestesia, rol quirúrgico, método de pago) están en catálogos; los dominios cerrados y pequeños '
         '(sexo, área, código de egreso, carácter de la cirugía) se validan con CHECK.',
@@ -145,9 +143,7 @@ def introduccion(S, tablas, fks, checks):
         'hospitalizacion_insumo, egreso_diagnostico, documentacion_etapa).',
         'Arcos exclusivos: la factura proviene de exactamente una cita, ingreso o cirugía; el traslado sale de '
         'una consulta o de un ingreso; la calificación evalúa a exactamente un hospital, médico, enfermero o '
-        'encargado. Se garantizan con CHECK usando num_nonnulls().',
-        'Las reglas que dependen de otra tabla (la camilla pertenece a la unidad del ingreso, la cirugía requiere '
-        'un agendamiento aprobado, la cuota no excede el plan de la factura, etc.) se validan con disparadores.']:
+        'encargado. Se garantizan con CHECK usando num_nonnulls().']:
         S.append(p('• ' + d, BODY))
 
 

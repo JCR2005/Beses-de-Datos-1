@@ -4,9 +4,7 @@
 -- Rangos de id: turnos 1000-1949; ingresos a emergencias 1001-1155 y a
 -- hospitalizacion 2001-2060; el egreso usa el mismo id que su ingreso.
 
-begin;
 set role admin;
-set search_path to public;
 
 -- ============================================================
 -- turnos de emergencia: cada 3 dias, jornada diurna y nocturna, en los 5 hospitales
@@ -155,4 +153,3 @@ select e.id_egreso, 1 + (e.id_egreso * 3) % 19
    and 1 + (e.id_egreso * 3) % 19 <> e.id_diagnostico_principal;
 
 reset role;
-commit;

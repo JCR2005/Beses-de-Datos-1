@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict rzQAxmA6FzkGGVLi5ZCH93GYZO07ubAS15Q7Uac1qWFbBt4zEsdYh8IzrHh6Qa0
+\restrict 1fFtitQ4QPoPbdhjHyjBqNcEW7N47cpnQS2g283y9nU03cRucczHtRIgWMyJ295
 
 -- Dumped from database version 18.6 (Debian 18.6-1.pgdg13+2)
 -- Dumped by pg_dump version 18.6 (Debian 18.6-1.pgdg13+2)
@@ -20,33 +20,6 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
--- Name: propuesta_bloque_e; Type: SCHEMA; Schema: -; Owner: admin
---
-
-CREATE SCHEMA propuesta_bloque_e;
-
-
-ALTER SCHEMA propuesta_bloque_e OWNER TO admin;
-
---
--- Name: fn_agendamiento_aprobado(); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_agendamiento_aprobado() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-begin
-    if (select estado_solicitud from agendamiento_quirurgico
-         where id_agendamiento = new.id_agendamiento) <> 'aprobada' then
-        raise exception 'El agendamiento % no está aprobado por el comité (%)', new.id_agendamiento, tg_table_name;
-    end if;
-    return new;
-end $$;
-
-
-ALTER FUNCTION public.fn_agendamiento_aprobado() OWNER TO admin;
-
---
 -- Name: fn_auditar_medico(); Type: FUNCTION; Schema: public; Owner: admin
 --
 
@@ -54,10 +27,11 @@ CREATE FUNCTION public.fn_auditar_medico() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 begin
-    perform fn_registrar_auditoria(current_user, 'medico', new.id_medico, 'id_especialidad',
-        old.id_especialidad || ' - ' || (select nombre from especialidad where id_especialidad = old.id_especialidad),
-        new.id_especialidad || ' - ' || (select nombre from especialidad where id_especialidad = new.id_especialidad));
-    return null;
+    if new.id_especialidad is distinct from old.id_especialidad then
+        insert into auditoria_personal (usuario, tabla, id_registro, campo, valor_anterior, valor_nuevo)
+        values (current_user, 'medico', new.id_medico, 'id_especialidad', old.id_especialidad, new.id_especialidad);
+    end if;
+    return new;
 end $$;
 
 
@@ -71,1353 +45,24 @@ CREATE FUNCTION public.fn_auditar_personal() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 begin
-    -- current_user aqui es el rol que hizo el cambio (la funcion no es security definer)
+    -- is distinct from es como <> pero tambien sirve cuando el valor es null
     if new.salario is distinct from old.salario then
-        perform fn_registrar_auditoria(current_user, 'personal', new.id_personal, 'salario',
-                                       old.salario::text, new.salario::text);
+        insert into auditoria_personal (usuario, tabla, id_registro, campo, valor_anterior, valor_nuevo)
+        values (current_user, 'personal', new.id_personal, 'salario', old.salario, new.salario);
     end if;
     if new.nivel_acceso is distinct from old.nivel_acceso then
-        perform fn_registrar_auditoria(current_user, 'personal', new.id_personal, 'nivel_acceso',
-                                       old.nivel_acceso, new.nivel_acceso);
+        insert into auditoria_personal (usuario, tabla, id_registro, campo, valor_anterior, valor_nuevo)
+        values (current_user, 'personal', new.id_personal, 'nivel_acceso', old.nivel_acceso, new.nivel_acceso);
     end if;
-    return null;
+    return new;
 end $$;
 
 
 ALTER FUNCTION public.fn_auditar_personal() OWNER TO admin;
 
---
--- Name: fn_cadena_mando(integer); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_cadena_mando(p_id_medico integer) RETURNS TABLE(nivel integer, id_medico integer, medico text, cargo character varying, especialidad character varying, hospital character varying)
-    LANGUAGE sql STABLE
-    AS $$
-    with recursive cadena (nivel, id_medico, id_medico_superior) as (
-        select 0, m.id_medico, m.id_medico_superior
-          from medico m
-         where m.id_medico = p_id_medico
-        union all
-        select c.nivel + 1, m.id_medico, m.id_medico_superior
-          from cadena c
-          join medico m on m.id_medico = c.id_medico_superior
-    )
-    select c.nivel, m.id_medico, m.nombres || ' ' || m.apellidos, m.cargo, es.nombre, h.nombre
-      from cadena c
-      join medico m on m.id_medico = c.id_medico
-      join especialidad es on es.id_especialidad = m.id_especialidad
-      join hospital h on h.id_hospital = m.id_hospital
-     order by c.nivel;
-$$;
-
-
-ALTER FUNCTION public.fn_cadena_mando(p_id_medico integer) OWNER TO admin;
-
---
--- Name: FUNCTION fn_cadena_mando(p_id_medico integer); Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON FUNCTION public.fn_cadena_mando(p_id_medico integer) IS 'Objetivo 16: cadena de supervisión de un médico hasta el director.';
-
-
---
--- Name: fn_calificacion_consulta(); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_calificacion_consulta() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-begin
-    if new.id_consulta is not null and new.id_medico is distinct from
-       (select ci.id_medico from consulta co join cita ci on ci.id_cita = co.id_cita
-         where co.id_consulta = new.id_consulta) then
-        raise exception 'La calificación de la consulta % debe ser para el médico que la atendió', new.id_consulta;
-    end if;
-    return new;
-end $$;
-
-
-ALTER FUNCTION public.fn_calificacion_consulta() OWNER TO admin;
-
---
--- Name: fn_camilla_unidad(); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_camilla_unidad() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-begin
-    if fn_tipo_unidad(new.id_unidad) not in ('Emergencias','Hospitalización') then
-        raise exception 'La camilla % debe pertenecer a Emergencias u Hospitalización', new.numero;
-    end if;
-    return new;
-end $$;
-
-
-ALTER FUNCTION public.fn_camilla_unidad() OWNER TO admin;
-
---
--- Name: fn_cirugia_personal_rol(); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_cirugia_personal_rol() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-declare
-    v_tipo varchar;
-begin
-    select tipo_personal into v_tipo from rol_quirurgico where id_rol = new.id_rol;
-    if (v_tipo = 'medico' and new.id_medico is null) or (v_tipo = 'enfermero' and new.id_enfermero is null) then
-        raise exception 'El rol % lo debe cumplir un %', new.id_rol, v_tipo;
-    end if;
-    return new;
-end $$;
-
-
-ALTER FUNCTION public.fn_cirugia_personal_rol() OWNER TO admin;
-
---
--- Name: fn_consulta_cita(); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_consulta_cita() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-begin
-    if (select estado from cita where id_cita = new.id_cita) <> 'realizada' then
-        raise exception 'La cita % no está realizada; no puede tener consulta', new.id_cita;
-    end if;
-    return new;
-end $$;
-
-
-ALTER FUNCTION public.fn_consulta_cita() OWNER TO admin;
-
---
--- Name: fn_edad(date, date); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_edad(p_fecha_nacimiento date, p_fecha date DEFAULT CURRENT_DATE) RETURNS smallint
-    LANGUAGE sql IMMUTABLE
-    AS $$
-    select extract(year from age(p_fecha, p_fecha_nacimiento))::smallint;
-$$;
-
-
-ALTER FUNCTION public.fn_edad(p_fecha_nacimiento date, p_fecha date) OWNER TO admin;
-
---
--- Name: fn_egreso_fecha(); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_egreso_fecha() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-declare
-    v_ingreso timestamptz;
-begin
-    select fecha_hora_ingreso into v_ingreso from ingreso where id_ingreso = new.id_ingreso;
-    if new.fecha_hora_egreso < v_ingreso then
-        raise exception 'El egreso (%) es anterior al ingreso (%)', new.fecha_hora_egreso, v_ingreso;
-    end if;
-    return new;
-end $$;
-
-
-ALTER FUNCTION public.fn_egreso_fecha() OWNER TO admin;
-
---
--- Name: fn_enfermero_desde_personal(); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_enfermero_desde_personal() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-declare
-    p personal%rowtype;
-begin
-    select * into p from personal where id_personal = new.id_enfermero;
-    if not found or p.tipo_personal <> 'enfermero' then
-        raise exception 'El enfermero % debe registrarse primero en personal como enfermero', new.id_enfermero;
-    end if;
-    new.nombres := p.nombres;
-    new.apellidos := p.apellidos;
-    new.dpi := p.dpi;
-    new.telefono := p.telefono;
-    new.id_hospital := p.id_hospital;
-    return new;
-end $$;
-
-
-ALTER FUNCTION public.fn_enfermero_desde_personal() OWNER TO admin;
-
---
--- Name: fn_hosp_insumo_ingreso(); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_hosp_insumo_ingreso() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-begin
-    if fn_tipo_unidad((select id_unidad from ingreso where id_ingreso = new.id_ingreso)) <> 'Hospitalización' then
-        raise exception 'El ingreso % no es de Hospitalización', new.id_ingreso;
-    end if;
-    return new;
-end $$;
-
-
-ALTER FUNCTION public.fn_hosp_insumo_ingreso() OWNER TO admin;
-
---
--- Name: fn_ingreso_consistencia(); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_ingreso_consistencia() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-declare
-    v_tipo varchar;
-    v_turno turno_emergencia%rowtype;
-    v_inicio timestamptz;
-begin
-    v_tipo := fn_tipo_unidad(new.id_unidad);
-    if v_tipo = 'Consulta Externa' then
-        raise exception 'Consulta Externa no usa ficha de ingreso';
-    end if;
-    if new.id_servicio is not null
-       and (select id_unidad from servicio_atencion where id_servicio = new.id_servicio) <> new.id_unidad then
-        raise exception 'El servicio % no pertenece a la unidad del ingreso', new.id_servicio;
-    end if;
-    if new.id_camilla is not null
-       and (select id_unidad from camilla where id_camilla = new.id_camilla) <> new.id_unidad then
-        raise exception 'La camilla % no pertenece a la unidad del ingreso', new.id_camilla;
-    end if;
-    if new.id_quirofano is not null
-       and (select id_unidad from quirofano where id_quirofano = new.id_quirofano) <> new.id_unidad then
-        raise exception 'El quirófano % no pertenece a la unidad del ingreso', new.id_quirofano;
-    end if;
-    if (new.id_turno is not null) <> (v_tipo = 'Emergencias') then
-        raise exception 'Solo los ingresos a Emergencias llevan turno, prioridad y espera';
-    end if;
-    if new.id_turno is not null then
-        select * into v_turno from turno_emergencia where id_turno = new.id_turno;
-        -- las jornadas se definen en hora local de Guatemala
-        v_inicio := (v_turno.fecha + case v_turno.jornada when 'diurno' then time '07:00' else time '19:00' end)
-                    at time zone 'America/Guatemala';
-        if v_turno.id_unidad <> new.id_unidad
-           or new.fecha_hora_ingreso < v_inicio
-           or new.fecha_hora_ingreso >= v_inicio + interval '12 hours' then
-            raise exception 'El ingreso no ocurre dentro del turno % de esa unidad', new.id_turno;
-        end if;
-    end if;
-    return new;
-end $$;
-
-
-ALTER FUNCTION public.fn_ingreso_consistencia() OWNER TO admin;
-
---
--- Name: fn_medico_desde_personal(); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_medico_desde_personal() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-declare
-    p personal%rowtype;
-begin
-    select * into p from personal where id_personal = new.id_medico;
-    if not found or p.tipo_personal <> 'medico' then
-        raise exception 'El médico % debe registrarse primero en personal como medico', new.id_medico;
-    end if;
-    new.nombres := p.nombres;
-    new.apellidos := p.apellidos;
-    new.dpi := p.dpi;
-    new.telefono := p.telefono;
-    new.id_municipio := p.id_municipio;
-    new.area := p.area;
-    new.id_hospital := p.id_hospital;
-    return new;
-end $$;
-
-
-ALTER FUNCTION public.fn_medico_desde_personal() OWNER TO admin;
-
---
--- Name: fn_medico_jerarquia(); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_medico_jerarquia() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-begin
-    if new.id_medico_superior is null then
-        return new;
-    end if;
-    if (select id_hospital from medico where id_medico = new.id_medico_superior) <> new.id_hospital then
-        raise exception 'El superior % no trabaja en el hospital del médico %', new.id_medico_superior, new.id_medico;
-    end if;
-    -- se sube por la cadena desde el nuevo superior; si se llega al propio medico hay un ciclo
-    if exists (
-        with recursive cadena(id_medico) as (
-            select new.id_medico_superior
-            union
-            select m.id_medico_superior
-              from medico m join cadena c on m.id_medico = c.id_medico
-             where m.id_medico_superior is not null
-        )
-        select 1 from cadena where id_medico = new.id_medico
-    ) then
-        raise exception 'Asignar a % como superior de % crearía un ciclo en la cadena de mando',
-            new.id_medico_superior, new.id_medico;
-    end if;
-    return new;
-end $$;
-
-
-ALTER FUNCTION public.fn_medico_jerarquia() OWNER TO admin;
-
---
--- Name: fn_objetivo_01(date, date); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_objetivo_01(p_desde date, p_hasta date) RETURNS TABLE(hospital character varying, reservaciones bigint, consultas bigint, proximas_consultas bigint, demanda_total bigint)
-    LANGUAGE sql STABLE
-    AS $$
-    with cita_lapso as (
-        select ci.id_cita, ci.estado, me.id_hospital
-          from cita ci
-          join medico me on me.id_medico = ci.id_medico
-         where ci.fecha_hora >= p_desde and ci.fecha_hora < p_hasta + 1
-    ), conteo as (
-        select cl.id_hospital,
-               count(*) filter (where cl.estado <> 'cancelada') as reservaciones,
-               count(co.id_consulta) as consultas,
-               count(re.fecha_proxima_cita) as proximas_consultas
-          from cita_lapso cl
-          left join consulta co on co.id_cita = cl.id_cita
-          left join receta re on re.id_consulta = co.id_consulta
-         group by cl.id_hospital
-    )
-    select h.nombre, c.reservaciones, c.consultas, c.proximas_consultas,
-           c.reservaciones + c.consultas + c.proximas_consultas
-      from conteo c
-      join hospital h on h.id_hospital = c.id_hospital
-     order by 5 desc, h.nombre
-     limit 3;
-$$;
-
-
-ALTER FUNCTION public.fn_objetivo_01(p_desde date, p_hasta date) OWNER TO admin;
-
---
--- Name: FUNCTION fn_objetivo_01(p_desde date, p_hasta date); Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON FUNCTION public.fn_objetivo_01(p_desde date, p_hasta date) IS 'Objetivo 1: 3 hospitales con mayor demanda en consulta externa.';
-
-
---
--- Name: fn_objetivo_02(date, date); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_objetivo_02(p_desde date, p_hasta date) RETURNS TABLE(posicion bigint, medico text, especialidad character varying, hospital character varying, calificacion_promedio numeric, calificaciones bigint, consultas bigint)
-    LANGUAGE sql STABLE
-    AS $$
-    with consulta_lapso as (
-        select co.id_consulta, ci.id_medico
-          from consulta co
-          join cita ci on ci.id_cita = co.id_cita
-         where ci.fecha_hora >= p_desde and ci.fecha_hora < p_hasta + 1
-    ), por_medico as (
-        select cl.id_medico,
-               avg(ca.puntuacion) as promedio,
-               count(ca.id_calificacion) as calificaciones,
-               count(distinct cl.id_consulta) as consultas
-          from consulta_lapso cl
-          left join calificacion ca on ca.id_consulta = cl.id_consulta
-         group by cl.id_medico
-        having count(ca.id_calificacion) > 0
-    )
-    select rank() over (order by pm.promedio, pm.consultas desc),
-           me.nombres || ' ' || me.apellidos, es.nombre, h.nombre,
-           round(pm.promedio, 2), pm.calificaciones, pm.consultas
-      from por_medico pm
-      join medico me on me.id_medico = pm.id_medico
-      join especialidad es on es.id_especialidad = me.id_especialidad
-      join hospital h on h.id_hospital = me.id_hospital
-     order by pm.promedio, pm.consultas desc
-     limit 5;
-$$;
-
-
-ALTER FUNCTION public.fn_objetivo_02(p_desde date, p_hasta date) OWNER TO admin;
-
---
--- Name: FUNCTION fn_objetivo_02(p_desde date, p_hasta date); Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON FUNCTION public.fn_objetivo_02(p_desde date, p_hasta date) IS 'Objetivo 2: 5 médicos de consulta externa con menor calificación promedio.';
-
-
---
--- Name: fn_objetivo_03(date, date); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_objetivo_03(p_desde date, p_hasta date) RETURNS TABLE(posicion bigint, medico text, hospital character varying, turnos bigint, horas_laboradas bigint, egresos_vivos bigint)
-    LANGUAGE sql STABLE
-    AS $$
-    with turnos as (
-        select tm.id_medico, count(*) as turnos
-          from turno_medico tm
-          join turno_emergencia t on t.id_turno = tm.id_turno
-         where t.fecha between p_desde and p_hasta
-         group by tm.id_medico
-    ), egresos as (
-        select e.id_medico, count(*) as egresos
-          from egreso e
-          join ingreso i on i.id_ingreso = e.id_ingreso
-          join unidad_medica u on u.id_unidad = i.id_unidad
-         where u.tipo_unidad = 'Emergencias'
-           and e.codigo_egreso = 'vivo' and not e.sin_consentimiento
-           and e.fecha_hora_egreso >= p_desde and e.fecha_hora_egreso < p_hasta + 1
-         group by e.id_medico
-    )
-    select rank() over (order by coalesce(eg.egresos, 0) desc, t.turnos desc),
-           me.nombres || ' ' || me.apellidos, h.nombre,
-           t.turnos, t.turnos * 12, coalesce(eg.egresos, 0)
-      from turnos t
-      join medico me on me.id_medico = t.id_medico
-      join hospital h on h.id_hospital = me.id_hospital
-      left join egresos eg on eg.id_medico = t.id_medico
-     order by 1
-     limit 5;
-$$;
-
-
-ALTER FUNCTION public.fn_objetivo_03(p_desde date, p_hasta date) OWNER TO admin;
-
---
--- Name: FUNCTION fn_objetivo_03(p_desde date, p_hasta date); Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON FUNCTION public.fn_objetivo_03(p_desde date, p_hasta date) IS 'Objetivo 3: 5 mejores médicos de emergencias.';
-
-
---
--- Name: fn_objetivo_04(date, date); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_objetivo_04(p_desde date, p_hasta date) RETURNS TABLE(hospital character varying, ingresos bigint, egresos bigint, atendidos_sin_espera bigint, porcentaje_sin_espera numeric, promedio_turnos_espera numeric)
-    LANGUAGE sql STABLE
-    AS $$
-    select h.nombre,
-           count(*),
-           count(e.id_egreso),
-           count(*) filter (where i.turnos_espera = 0),
-           round(100.0 * count(*) filter (where i.turnos_espera = 0) / count(*), 1),
-           round(avg(i.turnos_espera), 2)
-      from ingreso i
-      join unidad_medica u on u.id_unidad = i.id_unidad
-      join hospital h on h.id_hospital = u.id_hospital
-      left join egreso e on e.id_ingreso = i.id_ingreso
-     where u.tipo_unidad = 'Emergencias'
-       and i.fecha_hora_ingreso >= p_desde and i.fecha_hora_ingreso < p_hasta + 1
-     group by h.id_hospital, h.nombre
-     order by 5 desc, 6, 2 desc
-     limit 3;
-$$;
-
-
-ALTER FUNCTION public.fn_objetivo_04(p_desde date, p_hasta date) OWNER TO admin;
-
---
--- Name: FUNCTION fn_objetivo_04(p_desde date, p_hasta date); Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON FUNCTION public.fn_objetivo_04(p_desde date, p_hasta date) IS 'Objetivo 4: 3 hospitales con mayor disponibilidad de camillas en emergencias.';
-
-
---
--- Name: fn_objetivo_05(date, date); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_objetivo_05(p_desde date, p_hasta date) RETURNS TABLE(cirujano text, especialidad character varying, agendamientos_aprobados bigint, insumos bigint, instrumentos bigint, equipos bigint, recursos_por_cirugia numeric)
-    LANGUAGE sql STABLE
-    AS $$
-    with aprobado as (
-        select a.id_agendamiento, a.id_medico_cirujano
-          from agendamiento_quirurgico a
-         where a.estado_solicitud = 'aprobada'
-           and a.fecha_hora_solicitud >= p_desde and a.fecha_hora_solicitud < p_hasta + 1
-    ), recursos as (
-        select ap.id_medico_cirujano,
-               count(*) as aprobados,
-               sum((select coalesce(sum(cantidad), 0) from requerimiento_insumo r where r.id_agendamiento = ap.id_agendamiento)) as insumos,
-               sum((select coalesce(sum(cantidad), 0) from requerimiento_instrumento r where r.id_agendamiento = ap.id_agendamiento)) as instrumentos,
-               sum((select coalesce(sum(cantidad), 0) from requerimiento_equipo r where r.id_agendamiento = ap.id_agendamiento)) as equipos
-          from aprobado ap
-         group by ap.id_medico_cirujano
-    )
-    select me.nombres || ' ' || me.apellidos, es.nombre, r.aprobados,
-           r.insumos::bigint, r.instrumentos::bigint, r.equipos::bigint,
-           round((r.insumos + r.instrumentos + r.equipos) / r.aprobados, 2)
-      from recursos r
-      join medico me on me.id_medico = r.id_medico_cirujano
-      join especialidad es on es.id_especialidad = me.id_especialidad
-     order by r.aprobados desc, 7
-     limit 3;
-$$;
-
-
-ALTER FUNCTION public.fn_objetivo_05(p_desde date, p_hasta date) OWNER TO admin;
-
---
--- Name: FUNCTION fn_objetivo_05(p_desde date, p_hasta date); Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON FUNCTION public.fn_objetivo_05(p_desde date, p_hasta date) IS 'Objetivo 5: 3 cirujanos más eficientes (más aprobados, menos recursos).';
-
-
---
--- Name: fn_objetivo_06(date, date); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_objetivo_06(p_desde date, p_hasta date) RETURNS TABLE(tipo_cirugia character varying, especialidad character varying, cirugias bigint, ingresos numeric)
-    LANGUAGE sql STABLE
-    AS $$
-    with cirugia_exitosa as (
-        select c.id_cirugia, a.id_tipo_cirugia
-          from cirugia c
-          join agendamiento_quirurgico a on a.id_agendamiento = c.id_agendamiento
-         where c.condicion_evolucion = 'sin_complicaciones'
-           and c.fecha_hora_inicio >= p_desde and c.fecha_hora_inicio < p_hasta + 1
-           and not exists (
-                select 1
-                  from registro_procedimiento rp
-                  join aspecto_quirurgico ap on ap.id_aspecto = rp.id_aspecto
-                 where rp.id_cirugia = c.id_cirugia
-                   and ap.etapa = 'intraoperatorio'
-                   and rp.resultado not in ('exito', 'aceptable'))
-    )
-    select t.nombre, es.nombre, count(*), sum(f.total)
-      from cirugia_exitosa ce
-      join factura f on f.id_cirugia = ce.id_cirugia
-      join tipo_cirugia t on t.id_tipo_cirugia = ce.id_tipo_cirugia
-      join especialidad es on es.id_especialidad = t.id_especialidad
-     group by t.id_tipo_cirugia, t.nombre, es.nombre
-     order by 4 desc
-     limit 3;
-$$;
-
-
-ALTER FUNCTION public.fn_objetivo_06(p_desde date, p_hasta date) OWNER TO admin;
-
---
--- Name: FUNCTION fn_objetivo_06(p_desde date, p_hasta date); Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON FUNCTION public.fn_objetivo_06(p_desde date, p_hasta date) IS 'Objetivo 6: 3 tipos de cirugía con mayores ingresos sin complicaciones.';
-
-
---
--- Name: fn_objetivo_07(date, date); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_objetivo_07(p_desde date, p_hasta date) RETURNS TABLE(hospital character varying, ingresos numeric, camillas_asignadas bigint, costo_promedio_servicio numeric, ingreso_por_camilla numeric)
-    LANGUAGE sql STABLE
-    AS $$
-    select h.nombre,
-           sum(f.total),
-           count(distinct i.id_camilla),
-           round(avg(s.costo), 2),
-           round(sum(f.total) / count(distinct i.id_camilla), 2)
-      from factura f
-      join ingreso i on i.id_ingreso = f.id_ingreso
-      join unidad_medica u on u.id_unidad = i.id_unidad
-      join hospital h on h.id_hospital = u.id_hospital
-      join servicio_atencion s on s.id_servicio = i.id_servicio
-     where u.tipo_unidad = 'Hospitalización'
-       and f.fecha_emision >= p_desde and f.fecha_emision < p_hasta + 1
-     group by h.id_hospital, h.nombre
-     order by 5 desc
-     limit 3;
-$$;
-
-
-ALTER FUNCTION public.fn_objetivo_07(p_desde date, p_hasta date) OWNER TO admin;
-
---
--- Name: FUNCTION fn_objetivo_07(p_desde date, p_hasta date); Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON FUNCTION public.fn_objetivo_07(p_desde date, p_hasta date) IS 'Objetivo 7: 3 hospitales con mayor ingreso por camilla en hospitalización.';
-
-
---
--- Name: fn_objetivo_08(date, date); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_objetivo_08(p_desde date, p_hasta date) RETURNS TABLE(hospital character varying, unidad character varying, efectivo numeric, tarjeta_credito numeric, tarjeta_debito numeric)
-    LANGUAGE sql STABLE
-    AS $$
-    select h.nombre, vf.tipo_unidad,
-           coalesce(sum(p.monto) filter (where mp.nombre = 'Efectivo'), 0),
-           coalesce(sum(p.monto) filter (where mp.nombre = 'Tarjeta de crédito'), 0),
-           coalesce(sum(p.monto) filter (where mp.nombre = 'Tarjeta de débito'), 0)
-      from pago p
-      join metodo_pago mp on mp.id_metodo_pago = p.id_metodo_pago
-      join v_factura vf on vf.id_factura = p.id_factura
-      join hospital h on h.id_hospital = vf.id_hospital
-     where p.fecha_pago between p_desde and p_hasta
-     group by h.id_hospital, h.nombre, vf.tipo_unidad
-     order by h.id_hospital, vf.tipo_unidad;
-$$;
-
-
-ALTER FUNCTION public.fn_objetivo_08(p_desde date, p_hasta date) OWNER TO admin;
-
---
--- Name: FUNCTION fn_objetivo_08(p_desde date, p_hasta date); Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON FUNCTION public.fn_objetivo_08(p_desde date, p_hasta date) IS 'Objetivo 8: pagos por método (efectivo, crédito, débito) por hospital y unidad.';
-
-
---
--- Name: fn_objetivo_09(date, date); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_objetivo_09(p_desde date, p_hasta date) RETURNS TABLE(hospital character varying, ingresos_fichas bigint, citas bigint, consultas bigint, visitas bigint, monto_facturado numeric, ingreso_por_visita numeric)
-    LANGUAGE sql STABLE
-    AS $$
-    with fichas as (
-        select u.id_hospital, count(*) as n
-          from ingreso i join unidad_medica u on u.id_unidad = i.id_unidad
-         where i.fecha_hora_ingreso >= p_desde and i.fecha_hora_ingreso < p_hasta + 1
-         group by u.id_hospital
-    ), citas as (
-        select me.id_hospital, count(*) filter (where ci.estado <> 'cancelada') as citas, count(co.id_consulta) as consultas
-          from cita ci
-          join medico me on me.id_medico = ci.id_medico
-          left join consulta co on co.id_cita = ci.id_cita
-         where ci.fecha_hora >= p_desde and ci.fecha_hora < p_hasta + 1
-         group by me.id_hospital
-    ), facturado as (
-        select id_hospital, sum(total) as monto
-          from v_factura
-         where fecha_emision >= p_desde and fecha_emision < p_hasta + 1
-         group by id_hospital
-    )
-    select h.nombre, coalesce(fi.n, 0), coalesce(c.citas, 0), coalesce(c.consultas, 0),
-           coalesce(fi.n, 0) + coalesce(c.citas, 0),
-           coalesce(fa.monto, 0),
-           round(coalesce(fa.monto, 0) / nullif(coalesce(fi.n, 0) + coalesce(c.citas, 0), 0), 2)
-      from hospital h
-      left join fichas fi on fi.id_hospital = h.id_hospital
-      left join citas c on c.id_hospital = h.id_hospital
-      left join facturado fa on fa.id_hospital = h.id_hospital
-     order by 7 desc nulls last
-     limit 3;
-$$;
-
-
-ALTER FUNCTION public.fn_objetivo_09(p_desde date, p_hasta date) OWNER TO admin;
-
---
--- Name: FUNCTION fn_objetivo_09(p_desde date, p_hasta date); Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON FUNCTION public.fn_objetivo_09(p_desde date, p_hasta date) IS 'Objetivo 9: 3 hospitales con mayor ingreso por visita.';
-
-
---
--- Name: fn_objetivo_10(); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_objetivo_10() RETURNS TABLE(hospital character varying, fecha_mas_decesos date, decesos_en_fecha bigint, unidad_con_mas_decesos character varying, decesos_en_unidad bigint, decesos_totales bigint)
-    LANGUAGE sql STABLE
-    AS $$
-    with deceso as (
-        select u.id_hospital, u.tipo_unidad, e.fecha_hora_egreso::date as fecha
-          from egreso e
-          join ingreso i on i.id_ingreso = e.id_ingreso
-          join unidad_medica u on u.id_unidad = i.id_unidad
-         where e.codigo_egreso = 'muerto'
-    ), por_fecha as (
-        select id_hospital, fecha, count(*) as n,
-               row_number() over (partition by id_hospital order by count(*) desc, fecha desc) as orden
-          from deceso group by id_hospital, fecha
-    ), por_unidad as (
-        select id_hospital, tipo_unidad, count(*) as n,
-               row_number() over (partition by id_hospital order by count(*) desc, tipo_unidad) as orden,
-               sum(count(*)) over (partition by id_hospital) as total
-          from deceso group by id_hospital, tipo_unidad
-    )
-    select h.nombre, pf.fecha, pf.n, pu.tipo_unidad, pu.n, pu.total::bigint
-      from por_fecha pf
-      join por_unidad pu on pu.id_hospital = pf.id_hospital and pu.orden = 1
-      join hospital h on h.id_hospital = pf.id_hospital
-     where pf.orden = 1
-     order by pf.n desc, pu.total desc, h.nombre;
-$$;
-
-
-ALTER FUNCTION public.fn_objetivo_10() OWNER TO admin;
-
---
--- Name: FUNCTION fn_objetivo_10(); Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON FUNCTION public.fn_objetivo_10() IS 'Objetivo 10: fecha con más decesos y unidad con más decesos por hospital.';
-
-
---
--- Name: fn_objetivo_11(date, date); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_objetivo_11(p_desde date, p_hasta date) RETURNS TABLE(hospital character varying, facturas bigint, total_facturado numeric, total_cobrado numeric, pendiente_de_cobro numeric)
-    LANGUAGE sql STABLE
-    AS $$
-    with facturado as (
-        select id_hospital, count(*) as facturas, sum(total) as total
-          from v_factura
-         where fecha_emision >= p_desde and fecha_emision < p_hasta + 1
-         group by id_hospital
-    ), cobrado as (
-        select vf.id_hospital, sum(p.monto) as total
-          from pago p join v_factura vf on vf.id_factura = p.id_factura
-         where p.fecha_pago between p_desde and p_hasta
-         group by vf.id_hospital
-    )
-    select h.nombre, coalesce(f.facturas, 0), coalesce(f.total, 0), coalesce(c.total, 0),
-           coalesce(f.total, 0) - coalesce(c.total, 0)
-      from hospital h
-      left join facturado f on f.id_hospital = h.id_hospital
-      left join cobrado c on c.id_hospital = h.id_hospital
-     order by 3 desc;
-$$;
-
-
-ALTER FUNCTION public.fn_objetivo_11(p_desde date, p_hasta date) OWNER TO admin;
-
---
--- Name: FUNCTION fn_objetivo_11(p_desde date, p_hasta date); Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON FUNCTION public.fn_objetivo_11(p_desde date, p_hasta date) IS 'Objetivo 11: ingresos totales (facturado y cobrado) por hospital.';
-
-
---
--- Name: fn_objetivo_12(date, date); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_objetivo_12(p_desde date, p_hasta date) RETURNS TABLE(hospital character varying, jornada character varying, ingresos bigint, edad_promedio numeric, masculino bigint, femenino bigint)
-    LANGUAGE sql STABLE
-    AS $$
-    select h.nombre, t.jornada, count(*),
-           round(avg(fn_edad(p.fecha_nacimiento, i.fecha_hora_ingreso::date)), 1),
-           count(*) filter (where p.sexo = 'Masculino'),
-           count(*) filter (where p.sexo = 'Femenino')
-      from ingreso i
-      join turno_emergencia t on t.id_turno = i.id_turno
-      join unidad_medica u on u.id_unidad = i.id_unidad
-      join hospital h on h.id_hospital = u.id_hospital
-      join paciente p on p.id_paciente = i.id_paciente
-     where i.fecha_hora_ingreso >= p_desde and i.fecha_hora_ingreso < p_hasta + 1
-     group by h.id_hospital, h.nombre, t.jornada
-     order by h.id_hospital, t.jornada;
-$$;
-
-
-ALTER FUNCTION public.fn_objetivo_12(p_desde date, p_hasta date) OWNER TO admin;
-
---
--- Name: FUNCTION fn_objetivo_12(p_desde date, p_hasta date); Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON FUNCTION public.fn_objetivo_12(p_desde date, p_hasta date) IS 'Objetivo 12: edad promedio y sexo en emergencias por hospital y turno.';
-
-
---
--- Name: fn_objetivo_13(date, date); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_objetivo_13(p_desde date, p_hasta date) RETURNS TABLE(hospital character varying, fecha date, especialidad character varying, sexo character varying, citas bigint)
-    LANGUAGE sql STABLE
-    AS $$
-    select h.nombre, ci.fecha_hora::date, es.nombre, p.sexo, count(*)
-      from cita ci
-      join paciente p on p.id_paciente = ci.id_paciente
-      join medico me on me.id_medico = ci.id_medico
-      join especialidad es on es.id_especialidad = me.id_especialidad
-      join hospital h on h.id_hospital = me.id_hospital
-     where ci.fecha_hora >= p_desde and ci.fecha_hora < p_hasta + 1
-     group by h.id_hospital, h.nombre, ci.fecha_hora::date, es.nombre, p.sexo
-     order by h.id_hospital, 2, 3, 4;
-$$;
-
-
-ALTER FUNCTION public.fn_objetivo_13(p_desde date, p_hasta date) OWNER TO admin;
-
---
--- Name: FUNCTION fn_objetivo_13(p_desde date, p_hasta date); Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON FUNCTION public.fn_objetivo_13(p_desde date, p_hasta date) IS 'Objetivo 13: citas por hospital, fecha, especialidad y sexo.';
-
-
---
--- Name: fn_objetivo_14(date, date); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_objetivo_14(p_desde date, p_hasta date) RETURNS TABLE(hospital character varying, unidad character varying, facturas bigint, promedio_cuotas numeric, minimo_cuotas smallint, maximo_cuotas smallint)
-    LANGUAGE sql STABLE
-    AS $$
-    select h.nombre, vf.tipo_unidad, count(*), round(avg(vf.numero_cuotas), 2),
-           min(vf.numero_cuotas), max(vf.numero_cuotas)
-      from v_factura vf
-      join hospital h on h.id_hospital = vf.id_hospital
-     where vf.fecha_emision >= p_desde and vf.fecha_emision < p_hasta + 1
-     group by h.id_hospital, h.nombre, vf.tipo_unidad
-     order by h.id_hospital, vf.tipo_unidad;
-$$;
-
-
-ALTER FUNCTION public.fn_objetivo_14(p_desde date, p_hasta date) OWNER TO admin;
-
---
--- Name: FUNCTION fn_objetivo_14(p_desde date, p_hasta date); Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON FUNCTION public.fn_objetivo_14(p_desde date, p_hasta date) IS 'Objetivo 14: promedio de cuotas por unidad y hospital.';
-
-
---
--- Name: fn_objetivo_17_correlacionada(date, date); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_objetivo_17_correlacionada(p_desde date, p_hasta date) RETURNS TABLE(id_medico integer, medico text, hospital character varying, calificacion_promedio numeric, posicion_en_hospital bigint, posicion_en_cadena bigint)
-    LANGUAGE sql STABLE
-    AS $$
-    with pm as materialized (select * from fn_promedio_medico(p_desde, p_hasta))
-    select p1.id_medico, me.nombres || ' ' || me.apellidos, h.nombre, round(p1.promedio, 2),
-           1 + (select count(*) from pm p2 where p2.id_hospital = p1.id_hospital and p2.promedio < p1.promedio),
-           1 + (select count(*) from pm p2 where p2.promedio < p1.promedio)
-      from pm p1
-      join medico me on me.id_medico = p1.id_medico
-      join hospital h on h.id_hospital = p1.id_hospital
-     order by 6, 3, 2;
-$$;
-
-
-ALTER FUNCTION public.fn_objetivo_17_correlacionada(p_desde date, p_hasta date) OWNER TO admin;
-
---
--- Name: FUNCTION fn_objetivo_17_correlacionada(p_desde date, p_hasta date); Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON FUNCTION public.fn_objetivo_17_correlacionada(p_desde date, p_hasta date) IS 'Objetivo 17 (forma B): ranking por hospital y global con subconsultas correlacionadas.';
-
-
---
--- Name: fn_objetivo_17_ventana(date, date); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_objetivo_17_ventana(p_desde date, p_hasta date) RETURNS TABLE(id_medico integer, medico text, hospital character varying, calificacion_promedio numeric, posicion_en_hospital bigint, posicion_en_cadena bigint)
-    LANGUAGE sql STABLE
-    AS $$
-    select pm.id_medico, me.nombres || ' ' || me.apellidos, h.nombre, round(pm.promedio, 2),
-           rank() over (partition by pm.id_hospital order by pm.promedio),
-           rank() over (order by pm.promedio)
-      from fn_promedio_medico(p_desde, p_hasta) pm
-      join medico me on me.id_medico = pm.id_medico
-      join hospital h on h.id_hospital = pm.id_hospital
-     order by 6, 3, 2;
-$$;
-
-
-ALTER FUNCTION public.fn_objetivo_17_ventana(p_desde date, p_hasta date) OWNER TO admin;
-
---
--- Name: FUNCTION fn_objetivo_17_ventana(p_desde date, p_hasta date); Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON FUNCTION public.fn_objetivo_17_ventana(p_desde date, p_hasta date) IS 'Objetivo 17 (forma A): ranking por hospital y global con funciones de ventana.';
-
-
---
--- Name: fn_objetivo_18(date, date); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_objetivo_18(p_desde date, p_hasta date) RETURNS TABLE(id_paciente integer, numero_expediente character varying, paciente text, edad smallint, sexo character varying)
-    LANGUAGE sql STABLE
-    AS $$
-    with atencion (id_paciente, tipo_unidad) as (
-        select ci.id_paciente, 'Consulta Externa'::varchar
-          from consulta co join cita ci on ci.id_cita = co.id_cita
-         where ci.fecha_hora >= p_desde and ci.fecha_hora < p_hasta + 1
-        union
-        select i.id_paciente, u.tipo_unidad
-          from ingreso i join unidad_medica u on u.id_unidad = i.id_unidad
-         where i.fecha_hora_ingreso >= p_desde and i.fecha_hora_ingreso < p_hasta + 1
-    ), unidad (tipo_unidad) as (
-        values ('Consulta Externa'), ('Emergencias'), ('Cirugía'), ('Hospitalización')
-    )
-    select p.id_paciente, p.numero_expediente, p.nombres || ' ' || p.apellidos, fn_edad(p.fecha_nacimiento), p.sexo
-      from paciente p
-     where not exists (                       -- no existe una unidad...
-            select 1 from unidad u
-             where not exists (               -- ...en la que el paciente no haya sido atendido
-                    select 1 from atencion a
-                     where a.id_paciente = p.id_paciente and a.tipo_unidad = u.tipo_unidad))
-     order by p.id_paciente;
-$$;
-
-
-ALTER FUNCTION public.fn_objetivo_18(p_desde date, p_hasta date) OWNER TO admin;
-
---
--- Name: FUNCTION fn_objetivo_18(p_desde date, p_hasta date); Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON FUNCTION public.fn_objetivo_18(p_desde date, p_hasta date) IS 'Objetivo 18: pacientes atendidos en las 4 unidades (división relacional).';
-
-
---
--- Name: fn_paciente_nacimiento(); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_paciente_nacimiento() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-begin
-    if new.fecha_nacimiento > current_date then
-        raise exception 'La fecha de nacimiento % está en el futuro', new.fecha_nacimiento;
-    end if;
-    return new;
-end $$;
-
-
-ALTER FUNCTION public.fn_paciente_nacimiento() OWNER TO admin;
-
---
--- Name: fn_pago_plan(); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_pago_plan() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-declare
-    v_factura factura%rowtype;
-    v_pagado numeric;
-begin
-    select * into v_factura from factura where id_factura = new.id_factura;
-    if new.numero_cuota > v_factura.numero_cuotas then
-        raise exception 'La cuota % excede el plan de % cuotas de la factura %',
-            new.numero_cuota, v_factura.numero_cuotas, new.id_factura;
-    end if;
-    select coalesce(sum(monto), 0) into v_pagado
-      from pago where id_factura = new.id_factura and id_pago is distinct from new.id_pago;
-    if v_pagado + new.monto > v_factura.total then
-        raise exception 'Lo pagado (%) superaría el total de la factura (%)', v_pagado + new.monto, v_factura.total;
-    end if;
-    return new;
-end $$;
-
-
-ALTER FUNCTION public.fn_pago_plan() OWNER TO admin;
-
---
--- Name: fn_personal_a_subtipo(); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_personal_a_subtipo() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-begin
-    if new.tipo_personal = 'medico' then
-        -- el disparador del subtipo vuelve a leer los datos desde personal
-        update medico set id_medico = id_medico where id_medico = new.id_personal;
-    else
-        update enfermero set id_enfermero = id_enfermero where id_enfermero = new.id_personal;
-    end if;
-    return null;
-end $$;
-
-
-ALTER FUNCTION public.fn_personal_a_subtipo() OWNER TO admin;
-
---
--- Name: fn_personal_completo(); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_personal_completo() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-begin
-    if (new.tipo_personal = 'medico' and not exists (select 1 from medico where id_medico = new.id_personal))
-       or (new.tipo_personal = 'enfermero' and not exists (select 1 from enfermero where id_enfermero = new.id_personal)) then
-        raise exception 'La persona % (%) no tiene registro en su subtipo', new.id_personal, new.tipo_personal;
-    end if;
-    return null;
-end $$;
-
-
-ALTER FUNCTION public.fn_personal_completo() OWNER TO admin;
-
---
--- Name: fn_promedio_medico(date, date); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_promedio_medico(p_desde date, p_hasta date) RETURNS TABLE(id_medico integer, id_hospital integer, promedio numeric, calificaciones bigint)
-    LANGUAGE sql STABLE
-    AS $$
-    select ci.id_medico, me.id_hospital, avg(ca.puntuacion), count(*)
-      from calificacion ca
-      join consulta co on co.id_consulta = ca.id_consulta
-      join cita ci on ci.id_cita = co.id_cita
-      join medico me on me.id_medico = ci.id_medico
-     where ci.fecha_hora >= p_desde and ci.fecha_hora < p_hasta + 1
-     group by ci.id_medico, me.id_hospital;
-$$;
-
-
-ALTER FUNCTION public.fn_promedio_medico(p_desde date, p_hasta date) OWNER TO admin;
-
---
--- Name: fn_quirofano_unidad(); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_quirofano_unidad() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-begin
-    if fn_tipo_unidad(new.id_unidad) <> 'Cirugía' then
-        raise exception 'El quirófano % debe pertenecer a la unidad de Cirugía', new.numero;
-    end if;
-    return new;
-end $$;
-
-
-ALTER FUNCTION public.fn_quirofano_unidad() OWNER TO admin;
-
---
--- Name: fn_receta_proxima_cita(); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_receta_proxima_cita() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-declare
-    v_fecha date;
-begin
-    select ci.fecha_hora::date into v_fecha
-      from consulta co join cita ci on ci.id_cita = co.id_cita
-     where co.id_consulta = new.id_consulta;
-    if new.fecha_proxima_cita <= v_fecha then
-        raise exception 'La próxima cita (%) debe ser posterior a la consulta (%)', new.fecha_proxima_cita, v_fecha;
-    end if;
-    return new;
-end $$;
-
-
-ALTER FUNCTION public.fn_receta_proxima_cita() OWNER TO admin;
-
---
--- Name: fn_registrar_auditoria(text, text, integer, text, text, text); Type: FUNCTION; Schema: public; Owner: dueno_auditoria
---
-
-CREATE FUNCTION public.fn_registrar_auditoria(p_usuario_bd text, p_tabla text, p_id integer, p_campo text, p_anterior text, p_nuevo text) RETURNS void
-    LANGUAGE plpgsql SECURITY DEFINER
-    SET search_path TO 'public'
-    AS $$
-begin
-    if pg_trigger_depth() = 0 then
-        raise exception 'La bitácora solo se escribe desde los disparadores de auditoría';
-    end if;
-    insert into auditoria_personal (usuario_bd, usuario_sesion, usuario_aplicacion, tabla, id_registro,
-                                    campo, valor_anterior, valor_nuevo)
-    values (p_usuario_bd, session_user, nullif(current_setting('app.usuario', true), ''),
-            p_tabla, p_id, p_campo, p_anterior, p_nuevo);
-end $$;
-
-
-ALTER FUNCTION public.fn_registrar_auditoria(p_usuario_bd text, p_tabla text, p_id integer, p_campo text, p_anterior text, p_nuevo text) OWNER TO dueno_auditoria;
-
---
--- Name: fn_registro_resultado(); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_registro_resultado() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-declare
-    v_tipo varchar;
-begin
-    select tipo_evaluacion into v_tipo from aspecto_quirurgico where id_aspecto = new.id_aspecto;
-    if (v_tipo = 'exito_falla' and new.resultado not in ('exito','falla'))
-       or (v_tipo = 'aceptabilidad' and new.resultado not in ('aceptable','medianamente_aceptable','no_aceptable')) then
-        raise exception 'El resultado "%" no es válido para un aspecto evaluado por %', new.resultado, v_tipo;
-    end if;
-    return new;
-end $$;
-
-
-ALTER FUNCTION public.fn_registro_resultado() OWNER TO admin;
-
---
--- Name: fn_tipo_unidad(integer); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_tipo_unidad(p_id_unidad integer) RETURNS character varying
-    LANGUAGE sql STABLE
-    AS $$
-    select tipo_unidad from unidad_medica where id_unidad = p_id_unidad;
-$$;
-
-
-ALTER FUNCTION public.fn_tipo_unidad(p_id_unidad integer) OWNER TO admin;
-
---
--- Name: fn_traslado_origen(); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_traslado_origen() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-declare
-    v_origen integer;
-begin
-    if new.id_ingreso is not null then
-        select id_unidad into v_origen from ingreso where id_ingreso = new.id_ingreso;
-    else
-        select u.id_unidad into v_origen
-          from consulta co
-          join cita ci on ci.id_cita = co.id_cita
-          join medico me on me.id_medico = ci.id_medico
-          join unidad_medica u on u.id_hospital = me.id_hospital and u.tipo_unidad = 'Consulta Externa'
-         where co.id_consulta = new.id_consulta;
-    end if;
-    if new.id_unidad_origen <> v_origen then
-        raise exception 'La unidad de origen % no coincide con la de la ficha de origen (%)', new.id_unidad_origen, v_origen;
-    end if;
-    return new;
-end $$;
-
-
-ALTER FUNCTION public.fn_traslado_origen() OWNER TO admin;
-
---
--- Name: fn_turno_medico_hospital(); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_turno_medico_hospital() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-begin
-    if (select id_hospital from medico where id_medico = new.id_medico)
-       <> (select u.id_hospital from turno_emergencia t
-             join unidad_medica u on u.id_unidad = t.id_unidad
-            where t.id_turno = new.id_turno) then
-        raise exception 'El médico % no pertenece al hospital del turno %', new.id_medico, new.id_turno;
-    end if;
-    return new;
-end $$;
-
-
-ALTER FUNCTION public.fn_turno_medico_hospital() OWNER TO admin;
-
---
--- Name: fn_turno_unidad(); Type: FUNCTION; Schema: public; Owner: admin
---
-
-CREATE FUNCTION public.fn_turno_unidad() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-begin
-    if fn_tipo_unidad(new.id_unidad) <> 'Emergencias' then
-        raise exception 'El turno debe pertenecer a la unidad de Emergencias';
-    end if;
-    return new;
-end $$;
-
-
-ALTER FUNCTION public.fn_turno_unidad() OWNER TO admin;
-
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
-
---
--- Name: cirugia; Type: TABLE; Schema: propuesta_bloque_e; Owner: admin
---
-
-CREATE TABLE propuesta_bloque_e.cirugia (
-    id_cirugia integer NOT NULL,
-    id_cirujano integer NOT NULL,
-    id_paciente integer NOT NULL,
-    codigo_cie10 character varying(7) NOT NULL,
-    fecha date NOT NULL
-);
-
-
-ALTER TABLE propuesta_bloque_e.cirugia OWNER TO admin;
-
---
--- Name: cirugia_insumo; Type: TABLE; Schema: propuesta_bloque_e; Owner: admin
---
-
-CREATE TABLE propuesta_bloque_e.cirugia_insumo (
-    id_cirugia integer NOT NULL,
-    id_insumo integer NOT NULL,
-    cantidad smallint NOT NULL,
-    CONSTRAINT ck_cirugia_insumo_cantidad CHECK ((cantidad > 0))
-);
-
-
-ALTER TABLE propuesta_bloque_e.cirugia_insumo OWNER TO admin;
-
---
--- Name: cirujano; Type: TABLE; Schema: propuesta_bloque_e; Owner: admin
---
-
-CREATE TABLE propuesta_bloque_e.cirujano (
-    id_cirujano integer NOT NULL,
-    nombres character varying(100) NOT NULL,
-    apellidos character varying(100) NOT NULL,
-    id_especialidad integer NOT NULL
-);
-
-
-ALTER TABLE propuesta_bloque_e.cirujano OWNER TO admin;
-
---
--- Name: cirujano_id_cirujano_seq; Type: SEQUENCE; Schema: propuesta_bloque_e; Owner: admin
---
-
-ALTER TABLE propuesta_bloque_e.cirujano ALTER COLUMN id_cirujano ADD GENERATED ALWAYS AS IDENTITY (
-    SEQUENCE NAME propuesta_bloque_e.cirujano_id_cirujano_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1
-);
-
-
---
--- Name: diagnostico; Type: TABLE; Schema: propuesta_bloque_e; Owner: admin
---
-
-CREATE TABLE propuesta_bloque_e.diagnostico (
-    codigo_cie10 character varying(7) NOT NULL,
-    descripcion character varying(200) NOT NULL,
-    CONSTRAINT ck_diagnostico_codigo CHECK (((codigo_cie10)::text ~ '^[A-Z][0-9]{2}(\.[0-9]{1,2})?$'::text))
-);
-
-
-ALTER TABLE propuesta_bloque_e.diagnostico OWNER TO admin;
-
---
--- Name: especialidad; Type: TABLE; Schema: propuesta_bloque_e; Owner: admin
---
-
-CREATE TABLE propuesta_bloque_e.especialidad (
-    id_especialidad integer NOT NULL,
-    nombre character varying(80) NOT NULL
-);
-
-
-ALTER TABLE propuesta_bloque_e.especialidad OWNER TO admin;
-
---
--- Name: especialidad_id_especialidad_seq; Type: SEQUENCE; Schema: propuesta_bloque_e; Owner: admin
---
-
-ALTER TABLE propuesta_bloque_e.especialidad ALTER COLUMN id_especialidad ADD GENERATED ALWAYS AS IDENTITY (
-    SEQUENCE NAME propuesta_bloque_e.especialidad_id_especialidad_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1
-);
-
-
---
--- Name: insumo; Type: TABLE; Schema: propuesta_bloque_e; Owner: admin
---
-
-CREATE TABLE propuesta_bloque_e.insumo (
-    id_insumo integer NOT NULL,
-    nombre character varying(120) NOT NULL
-);
-
-
-ALTER TABLE propuesta_bloque_e.insumo OWNER TO admin;
-
---
--- Name: insumo_id_insumo_seq; Type: SEQUENCE; Schema: propuesta_bloque_e; Owner: admin
---
-
-ALTER TABLE propuesta_bloque_e.insumo ALTER COLUMN id_insumo ADD GENERATED ALWAYS AS IDENTITY (
-    SEQUENCE NAME propuesta_bloque_e.insumo_id_insumo_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1
-);
-
-
---
--- Name: paciente; Type: TABLE; Schema: propuesta_bloque_e; Owner: admin
---
-
-CREATE TABLE propuesta_bloque_e.paciente (
-    id_paciente integer NOT NULL,
-    nombres character varying(100) NOT NULL,
-    apellidos character varying(100) NOT NULL
-);
-
-
-ALTER TABLE propuesta_bloque_e.paciente OWNER TO admin;
-
---
--- Name: paciente_id_paciente_seq; Type: SEQUENCE; Schema: propuesta_bloque_e; Owner: admin
---
-
-ALTER TABLE propuesta_bloque_e.paciente ALTER COLUMN id_paciente ADD GENERATED ALWAYS AS IDENTITY (
-    SEQUENCE NAME propuesta_bloque_e.paciente_id_paciente_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1
-);
-
-
---
--- Name: reporte_cirugia; Type: TABLE; Schema: propuesta_bloque_e; Owner: admin
---
-
-CREATE TABLE propuesta_bloque_e.reporte_cirugia (
-    id_cirugia integer NOT NULL,
-    nombre_cirujano character varying(150),
-    especialidad_cirujano character varying(80),
-    nombre_paciente character varying(150),
-    codigo_diagnostico character varying(7),
-    descripcion_diagnostico character varying(200),
-    nombre_insumo_1 character varying(120),
-    cantidad_insumo_1 smallint,
-    nombre_insumo_2 character varying(120),
-    cantidad_insumo_2 smallint,
-    fecha date
-);
-
-
-ALTER TABLE propuesta_bloque_e.reporte_cirugia OWNER TO admin;
 
 --
 -- Name: agendamiento_quirurgico; Type: TABLE; Schema: public; Owner: admin
@@ -1447,62 +92,6 @@ CREATE TABLE public.agendamiento_quirurgico (
 
 
 ALTER TABLE public.agendamiento_quirurgico OWNER TO admin;
-
---
--- Name: TABLE agendamiento_quirurgico; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.agendamiento_quirurgico IS 'Solicitud de cirugía que el cirujano envía al comité médico.';
-
-
---
--- Name: COLUMN agendamiento_quirurgico.caracter; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.agendamiento_quirurgico.caracter IS 'urgente o programado.';
-
-
---
--- Name: COLUMN agendamiento_quirurgico.resumen_clinico; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.agendamiento_quirurgico.resumen_clinico IS 'Resumen de la historia clínica que justifica la cirugía.';
-
-
---
--- Name: COLUMN agendamiento_quirurgico.tiempo_estimado_min; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.agendamiento_quirurgico.tiempo_estimado_min IS 'Tiempo estimado de la intervención en minutos.';
-
-
---
--- Name: COLUMN agendamiento_quirurgico.fecha_hora_solicitud; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.agendamiento_quirurgico.fecha_hora_solicitud IS 'Fecha y hora en que se envió la solicitud.';
-
-
---
--- Name: COLUMN agendamiento_quirurgico.estado_solicitud; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.agendamiento_quirurgico.estado_solicitud IS 'Decisión del comité: pendiente, aprobada o rechazada.';
-
-
---
--- Name: COLUMN agendamiento_quirurgico.motivo_rechazo; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.agendamiento_quirurgico.motivo_rechazo IS 'Razones del rechazo (base de cirugías rechazadas).';
-
-
---
--- Name: COLUMN agendamiento_quirurgico.fecha_hora_agendada; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.agendamiento_quirurgico.fecha_hora_agendada IS 'Fecha y hora asignadas al aprobarse.';
-
 
 --
 -- Name: agendamiento_quirurgico_id_agendamiento_seq; Type: SEQUENCE; Schema: public; Owner: admin
@@ -1536,41 +125,6 @@ CREATE TABLE public.aspecto_quirurgico (
 ALTER TABLE public.aspecto_quirurgico OWNER TO admin;
 
 --
--- Name: TABLE aspecto_quirurgico; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.aspecto_quirurgico IS 'Aspectos que el enfermero verifica en cada etapa de la cirugía.';
-
-
---
--- Name: COLUMN aspecto_quirurgico.etapa; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.aspecto_quirurgico.etapa IS 'preoperatorio, intraoperatorio o postoperatorio.';
-
-
---
--- Name: COLUMN aspecto_quirurgico.seccion; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.aspecto_quirurgico.seccion IS 'Sección de la etapa (Planificación, Entrada, Pausa quirúrgica...).';
-
-
---
--- Name: COLUMN aspecto_quirurgico.nombre; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.aspecto_quirurgico.nombre IS 'Aspecto que se verifica.';
-
-
---
--- Name: COLUMN aspecto_quirurgico.tipo_evaluacion; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.aspecto_quirurgico.tipo_evaluacion IS 'exito_falla o aceptabilidad.';
-
-
---
 -- Name: aspecto_quirurgico_id_aspecto_seq; Type: SEQUENCE; Schema: public; Owner: admin
 --
 
@@ -1585,106 +139,25 @@ ALTER TABLE public.aspecto_quirurgico ALTER COLUMN id_aspecto ADD GENERATED BY D
 
 
 --
--- Name: auditoria_personal; Type: TABLE; Schema: public; Owner: dueno_auditoria
+-- Name: auditoria_personal; Type: TABLE; Schema: public; Owner: admin
 --
 
 CREATE TABLE public.auditoria_personal (
-    id_auditoria bigint NOT NULL,
-    fecha_hora timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
-    usuario_bd character varying(63) NOT NULL,
-    usuario_sesion character varying(63) NOT NULL,
-    usuario_aplicacion character varying(100),
+    id_auditoria integer NOT NULL,
+    fecha_hora timestamp with time zone DEFAULT now() NOT NULL,
+    usuario character varying(63) NOT NULL,
     tabla character varying(30) NOT NULL,
     id_registro integer NOT NULL,
     campo character varying(30) NOT NULL,
     valor_anterior text,
-    valor_nuevo text,
-    CONSTRAINT ck_auditoria_campo CHECK (((campo)::text = ANY ((ARRAY['salario'::character varying, 'nivel_acceso'::character varying, 'id_especialidad'::character varying])::text[]))),
-    CONSTRAINT ck_auditoria_tabla CHECK (((tabla)::text = ANY ((ARRAY['personal'::character varying, 'medico'::character varying])::text[])))
+    valor_nuevo text
 );
 
 
-ALTER TABLE public.auditoria_personal OWNER TO dueno_auditoria;
+ALTER TABLE public.auditoria_personal OWNER TO admin;
 
 --
--- Name: TABLE auditoria_personal; Type: COMMENT; Schema: public; Owner: dueno_auditoria
---
-
-COMMENT ON TABLE public.auditoria_personal IS 'Bitácora automática de los cambios de salario, nivel de acceso y especialidad del personal.';
-
-
---
--- Name: COLUMN auditoria_personal.id_auditoria; Type: COMMENT; Schema: public; Owner: dueno_auditoria
---
-
-COMMENT ON COLUMN public.auditoria_personal.id_auditoria IS 'Identificador del registro de la bitácora (lo genera la base, no se puede asignar).';
-
-
---
--- Name: COLUMN auditoria_personal.fecha_hora; Type: COMMENT; Schema: public; Owner: dueno_auditoria
---
-
-COMMENT ON COLUMN public.auditoria_personal.fecha_hora IS 'Momento exacto del cambio (clock_timestamp).';
-
-
---
--- Name: COLUMN auditoria_personal.usuario_bd; Type: COMMENT; Schema: public; Owner: dueno_auditoria
---
-
-COMMENT ON COLUMN public.auditoria_personal.usuario_bd IS 'Rol de base de datos que hizo el cambio.';
-
-
---
--- Name: COLUMN auditoria_personal.usuario_sesion; Type: COMMENT; Schema: public; Owner: dueno_auditoria
---
-
-COMMENT ON COLUMN public.auditoria_personal.usuario_sesion IS 'Usuario con el que se inició la sesión (distinto del rol si se usó SET ROLE).';
-
-
---
--- Name: COLUMN auditoria_personal.usuario_aplicacion; Type: COMMENT; Schema: public; Owner: dueno_auditoria
---
-
-COMMENT ON COLUMN public.auditoria_personal.usuario_aplicacion IS 'Usuario de la aplicación que hizo el cambio, enviado en la variable app.usuario.';
-
-
---
--- Name: COLUMN auditoria_personal.tabla; Type: COMMENT; Schema: public; Owner: dueno_auditoria
---
-
-COMMENT ON COLUMN public.auditoria_personal.tabla IS 'Tabla donde ocurrió el cambio: personal o medico.';
-
-
---
--- Name: COLUMN auditoria_personal.id_registro; Type: COMMENT; Schema: public; Owner: dueno_auditoria
---
-
-COMMENT ON COLUMN public.auditoria_personal.id_registro IS 'Identificador de la persona cuyo dato cambió (id_personal = id_medico).';
-
-
---
--- Name: COLUMN auditoria_personal.campo; Type: COMMENT; Schema: public; Owner: dueno_auditoria
---
-
-COMMENT ON COLUMN public.auditoria_personal.campo IS 'Campo que cambió: salario, nivel_acceso o id_especialidad.';
-
-
---
--- Name: COLUMN auditoria_personal.valor_anterior; Type: COMMENT; Schema: public; Owner: dueno_auditoria
---
-
-COMMENT ON COLUMN public.auditoria_personal.valor_anterior IS 'Valor antes del cambio.';
-
-
---
--- Name: COLUMN auditoria_personal.valor_nuevo; Type: COMMENT; Schema: public; Owner: dueno_auditoria
---
-
-COMMENT ON COLUMN public.auditoria_personal.valor_nuevo IS 'Valor después del cambio.';
-
-
---
--- Name: auditoria_personal_id_auditoria_seq; Type: SEQUENCE; Schema: public; Owner: dueno_auditoria
+-- Name: auditoria_personal_id_auditoria_seq; Type: SEQUENCE; Schema: public; Owner: admin
 --
 
 ALTER TABLE public.auditoria_personal ALTER COLUMN id_auditoria ADD GENERATED ALWAYS AS IDENTITY (
@@ -1720,34 +193,6 @@ CREATE TABLE public.calificacion (
 ALTER TABLE public.calificacion OWNER TO admin;
 
 --
--- Name: TABLE calificacion; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.calificacion IS 'Calificación de la calidad del servicio de un hospital, médico, enfermero o encargado.';
-
-
---
--- Name: COLUMN calificacion.fecha; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.calificacion.fecha IS 'Fecha de la calificación.';
-
-
---
--- Name: COLUMN calificacion.puntuacion; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.calificacion.puntuacion IS 'Puntuación de 1 (peor) a 5 (mejor).';
-
-
---
--- Name: COLUMN calificacion.comentario; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.calificacion.comentario IS 'Comentario opcional.';
-
-
---
 -- Name: calificacion_id_calificacion_seq; Type: SEQUENCE; Schema: public; Owner: admin
 --
 
@@ -1777,27 +222,6 @@ CREATE TABLE public.camilla (
 ALTER TABLE public.camilla OWNER TO admin;
 
 --
--- Name: TABLE camilla; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.camilla IS 'Camillas de las unidades de Emergencias y Hospitalización.';
-
-
---
--- Name: COLUMN camilla.numero; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.camilla.numero IS 'Número de la camilla dentro de su unidad.';
-
-
---
--- Name: COLUMN camilla.disponible; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.camilla.disponible IS 'Indica si la camilla está libre.';
-
-
---
 -- Name: camilla_id_camilla_seq; Type: SEQUENCE; Schema: public; Owner: admin
 --
 
@@ -1821,33 +245,11 @@ CREATE TABLE public.chequeo_preanestesico (
     clasificacion_asa character varying(3) NOT NULL,
     id_medico_clasifica integer NOT NULL,
     plan_anestesia text NOT NULL,
-    id_medico_anestesista integer NOT NULL,
-    CONSTRAINT ck_chequeo_asa CHECK (((clasificacion_asa)::text = ANY ((ARRAY['I'::character varying, 'II'::character varying, 'III'::character varying, 'IV'::character varying, 'V'::character varying, 'VI'::character varying])::text[])))
+    id_medico_anestesista integer NOT NULL
 );
 
 
 ALTER TABLE public.chequeo_preanestesico OWNER TO admin;
-
---
--- Name: TABLE chequeo_preanestesico; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.chequeo_preanestesico IS 'Evaluación del riesgo anestésico (ASA) y plan de anestesia.';
-
-
---
--- Name: COLUMN chequeo_preanestesico.clasificacion_asa; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.chequeo_preanestesico.clasificacion_asa IS 'Clasificación ASA del riesgo anestésico (I a VI).';
-
-
---
--- Name: COLUMN chequeo_preanestesico.plan_anestesia; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.chequeo_preanestesico.plan_anestesia IS 'Plan de anestesia.';
-
 
 --
 -- Name: chequeo_preanestesico_id_chequeo_seq; Type: SEQUENCE; Schema: public; Owner: admin
@@ -1886,41 +288,6 @@ CREATE TABLE public.cirugia (
 ALTER TABLE public.cirugia OWNER TO admin;
 
 --
--- Name: TABLE cirugia; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.cirugia IS 'Cirugía realizada a partir de un agendamiento aprobado.';
-
-
---
--- Name: COLUMN cirugia.fecha_hora_inicio; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.cirugia.fecha_hora_inicio IS 'Inicio de la cirugía.';
-
-
---
--- Name: COLUMN cirugia.fecha_hora_fin; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.cirugia.fecha_hora_fin IS 'Fin de la cirugía.';
-
-
---
--- Name: COLUMN cirugia.estado; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.cirugia.estado IS 'preoperatorio, intraoperatorio, postoperatorio o finalizada.';
-
-
---
--- Name: COLUMN cirugia.condicion_evolucion; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.cirugia.condicion_evolucion IS 'sin_complicaciones, complicaciones o complicaciones_graves.';
-
-
---
 -- Name: cirugia_id_cirugia_seq; Type: SEQUENCE; Schema: public; Owner: admin
 --
 
@@ -1951,27 +318,6 @@ CREATE TABLE public.cirugia_insumo (
 ALTER TABLE public.cirugia_insumo OWNER TO admin;
 
 --
--- Name: TABLE cirugia_insumo; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.cirugia_insumo IS 'Insumos usados en la cirugía.';
-
-
---
--- Name: COLUMN cirugia_insumo.cantidad; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.cirugia_insumo.cantidad IS 'Cantidad usada.';
-
-
---
--- Name: COLUMN cirugia_insumo.costo_unitario; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.cirugia_insumo.costo_unitario IS 'Costo por unidad al momento de usarlo.';
-
-
---
 -- Name: cirugia_personal; Type: TABLE; Schema: public; Owner: admin
 --
 
@@ -1986,13 +332,6 @@ CREATE TABLE public.cirugia_personal (
 
 
 ALTER TABLE public.cirugia_personal OWNER TO admin;
-
---
--- Name: TABLE cirugia_personal; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.cirugia_personal IS 'Médicos y enfermeros que participan en la cirugía.';
-
 
 --
 -- Name: cirugia_personal_id_cirugia_personal_seq; Type: SEQUENCE; Schema: public; Owner: admin
@@ -2025,9 +364,9 @@ CREATE TABLE public.cita (
     cancelada_sin_aviso boolean DEFAULT false NOT NULL,
     costo_base numeric(10,2) NOT NULL,
     costo_final numeric(10,2) NOT NULL,
+    id_clinica integer NOT NULL,
     CONSTRAINT ck_cita_costos CHECK (((costo_base >= (0)::numeric) AND (costo_final >= (0)::numeric))),
     CONSTRAINT ck_cita_estado CHECK (((estado)::text = ANY ((ARRAY['programada'::character varying, 'realizada'::character varying, 'reprogramada'::character varying, 'cancelada'::character varying])::text[]))),
-    CONSTRAINT ck_cita_medio CHECK (((medio_asignacion)::text = ANY ((ARRAY['telefonico'::character varying, 'correo_institucional'::character varying, 'recepcion_general'::character varying, 'recepcion_medico'::character varying])::text[]))),
     CONSTRAINT ck_cita_sin_aviso CHECK (((NOT cancelada_sin_aviso) OR ((estado)::text = 'cancelada'::text)))
 );
 
@@ -2035,81 +374,50 @@ CREATE TABLE public.cita (
 ALTER TABLE public.cita OWNER TO admin;
 
 --
--- Name: TABLE cita; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.cita IS 'Citas programadas de consulta externa.';
-
-
---
--- Name: COLUMN cita.fecha_hora; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.cita.fecha_hora IS 'Fecha y hora de la cita.';
-
-
---
--- Name: COLUMN cita.numero_clinica; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.cita.numero_clinica IS 'Clínica o consultorio donde se atiende.';
-
-
---
--- Name: COLUMN cita.medio_asignacion; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.cita.medio_asignacion IS 'Medio por el que se asignó: teléfono, correo, recepción general o del médico.';
-
-
---
--- Name: COLUMN cita.estado; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.cita.estado IS 'programada, realizada, reprogramada o cancelada.';
-
-
---
--- Name: COLUMN cita.es_reconsulta; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.cita.es_reconsulta IS 'Indica si es reconsulta (cuesta 75% de la primera consulta).';
-
-
---
--- Name: COLUMN cita.es_referido; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.cita.es_referido IS 'Indica si el paciente fue referido por una institución (cuesta 80%).';
-
-
---
--- Name: COLUMN cita.cancelada_sin_aviso; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.cita.cancelada_sin_aviso IS 'Indica si se canceló sin avisar (sobrecargo de 10% en la siguiente cita).';
-
-
---
--- Name: COLUMN cita.costo_base; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.cita.costo_base IS 'Costo de primera consulta del médico al momento de agendar.';
-
-
---
--- Name: COLUMN cita.costo_final; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.cita.costo_final IS 'Costo cobrado después de aplicar las reglas de descuento o sobrecargo.';
-
-
---
 -- Name: cita_id_cita_seq; Type: SEQUENCE; Schema: public; Owner: admin
 --
 
 ALTER TABLE public.cita ALTER COLUMN id_cita ADD GENERATED BY DEFAULT AS IDENTITY (
     SEQUENCE NAME public.cita_id_cita_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: clasificacion_asa; Type: TABLE; Schema: public; Owner: admin
+--
+
+CREATE TABLE public.clasificacion_asa (
+    codigo character varying(3) NOT NULL,
+    descripcion character varying(100) NOT NULL
+);
+
+
+ALTER TABLE public.clasificacion_asa OWNER TO admin;
+
+--
+-- Name: clinica; Type: TABLE; Schema: public; Owner: admin
+--
+
+CREATE TABLE public.clinica (
+    id_clinica integer NOT NULL,
+    id_unidad integer NOT NULL,
+    numero character varying(10) NOT NULL
+);
+
+
+ALTER TABLE public.clinica OWNER TO admin;
+
+--
+-- Name: clinica_id_clinica_seq; Type: SEQUENCE; Schema: public; Owner: admin
+--
+
+ALTER TABLE public.clinica ALTER COLUMN id_clinica ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.clinica_id_clinica_seq
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
@@ -2142,76 +450,6 @@ CREATE TABLE public.consentimiento_informado (
 ALTER TABLE public.consentimiento_informado OWNER TO admin;
 
 --
--- Name: TABLE consentimiento_informado; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.consentimiento_informado IS 'Consentimiento informado firmado para la cirugía.';
-
-
---
--- Name: COLUMN consentimiento_informado.procedimiento_nombre; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.consentimiento_informado.procedimiento_nombre IS 'Nombre específico del procedimiento.';
-
-
---
--- Name: COLUMN consentimiento_informado.procedimiento_objetivo; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.consentimiento_informado.procedimiento_objetivo IS 'Objetivo del procedimiento.';
-
-
---
--- Name: COLUMN consentimiento_informado.procedimiento_caracteristicas; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.consentimiento_informado.procedimiento_caracteristicas IS 'Características del procedimiento.';
-
-
---
--- Name: COLUMN consentimiento_informado.procedimiento_riesgos; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.consentimiento_informado.procedimiento_riesgos IS 'Posibles riesgos del procedimiento.';
-
-
---
--- Name: COLUMN consentimiento_informado.medico_firmo; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.consentimiento_informado.medico_firmo IS 'Indica si el médico firmó.';
-
-
---
--- Name: COLUMN consentimiento_informado.firmante_nombre; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.consentimiento_informado.firmante_nombre IS 'Nombre de quien firma por el paciente.';
-
-
---
--- Name: COLUMN consentimiento_informado.firmante_relacion; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.consentimiento_informado.firmante_relacion IS 'paciente, familiar, tutor o representante_legal.';
-
-
---
--- Name: COLUMN consentimiento_informado.firmante_firmo; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.consentimiento_informado.firmante_firmo IS 'Indica si el paciente o su representante firmó.';
-
-
---
--- Name: COLUMN consentimiento_informado.fecha_obtencion; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.consentimiento_informado.fecha_obtencion IS 'Fecha en que se obtuvo el consentimiento.';
-
-
---
 -- Name: consentimiento_informado_id_consentimiento_seq; Type: SEQUENCE; Schema: public; Owner: admin
 --
 
@@ -2241,27 +479,6 @@ CREATE TABLE public.consulta (
 ALTER TABLE public.consulta OWNER TO admin;
 
 --
--- Name: TABLE consulta; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.consulta IS 'Consulta realizada en una cita.';
-
-
---
--- Name: COLUMN consulta.otros_datos; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.consulta.otros_datos IS 'Otros datos de interés clínico.';
-
-
---
--- Name: COLUMN consulta.notas_observaciones; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.consulta.notas_observaciones IS 'Notas u observaciones del médico.';
-
-
---
 -- Name: consulta_id_consulta_seq; Type: SEQUENCE; Schema: public; Owner: admin
 --
 
@@ -2286,20 +503,6 @@ CREATE TABLE public.departamento (
 
 
 ALTER TABLE public.departamento OWNER TO admin;
-
---
--- Name: TABLE departamento; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.departamento IS 'Departamentos de Guatemala.';
-
-
---
--- Name: COLUMN departamento.nombre; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.departamento.nombre IS 'Nombre del departamento.';
-
 
 --
 -- Name: departamento_id_departamento_seq; Type: SEQUENCE; Schema: public; Owner: admin
@@ -2328,27 +531,6 @@ CREATE TABLE public.diagnostico (
 
 
 ALTER TABLE public.diagnostico OWNER TO admin;
-
---
--- Name: TABLE diagnostico; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.diagnostico IS 'Diagnósticos de la Clasificación Internacional de Enfermedades (CIE-10).';
-
-
---
--- Name: COLUMN diagnostico.codigo_cie10; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.diagnostico.codigo_cie10 IS 'Código CIE-10 del diagnóstico.';
-
-
---
--- Name: COLUMN diagnostico.descripcion; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.diagnostico.descripcion IS 'Descripción oficial del diagnóstico.';
-
 
 --
 -- Name: diagnostico_id_diagnostico_seq; Type: SEQUENCE; Schema: public; Owner: admin
@@ -2380,27 +562,6 @@ CREATE TABLE public.documentacion_etapa (
 ALTER TABLE public.documentacion_etapa OWNER TO admin;
 
 --
--- Name: TABLE documentacion_etapa; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.documentacion_etapa IS 'Documentación de cada etapa de la cirugía enviada a secretaría.';
-
-
---
--- Name: COLUMN documentacion_etapa.etapa; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.documentacion_etapa.etapa IS 'Etapa documentada.';
-
-
---
--- Name: COLUMN documentacion_etapa.fecha_envio; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.documentacion_etapa.fecha_envio IS 'Fecha de envío a secretaría.';
-
-
---
 -- Name: egreso; Type: TABLE; Schema: public; Owner: admin
 --
 
@@ -2424,62 +585,6 @@ CREATE TABLE public.egreso (
 ALTER TABLE public.egreso OWNER TO admin;
 
 --
--- Name: TABLE egreso; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.egreso IS 'Ficha de egreso que cierra un ingreso.';
-
-
---
--- Name: COLUMN egreso.fecha_hora_egreso; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.egreso.fecha_hora_egreso IS 'Fecha y hora del egreso.';
-
-
---
--- Name: COLUMN egreso.motivo_egreso; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.egreso.motivo_egreso IS 'Motivo del egreso.';
-
-
---
--- Name: COLUMN egreso.codigo_egreso; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.egreso.codigo_egreso IS 'Condición de salida: vivo, muerto, embarazo o parto.';
-
-
---
--- Name: COLUMN egreso.sin_consentimiento; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.egreso.sin_consentimiento IS 'Indica si el paciente salió sin consentimiento médico.';
-
-
---
--- Name: COLUMN egreso.motivo_sin_consentimiento; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.egreso.motivo_sin_consentimiento IS 'Motivo del egreso sin consentimiento.';
-
-
---
--- Name: COLUMN egreso.codigo_traslado; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.egreso.codigo_traslado IS 'Código de traslado, si el egreso fue por traslado.';
-
-
---
--- Name: COLUMN egreso.referido_otro_hospital; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.egreso.referido_otro_hospital IS 'Indica si fue referido a otro hospital o establecimiento.';
-
-
---
 -- Name: egreso_diagnostico; Type: TABLE; Schema: public; Owner: admin
 --
 
@@ -2490,13 +595,6 @@ CREATE TABLE public.egreso_diagnostico (
 
 
 ALTER TABLE public.egreso_diagnostico OWNER TO admin;
-
---
--- Name: TABLE egreso_diagnostico; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.egreso_diagnostico IS 'Diagnósticos secundarios de cada egreso.';
-
 
 --
 -- Name: egreso_id_egreso_seq; Type: SEQUENCE; Schema: public; Owner: admin
@@ -2531,48 +629,6 @@ CREATE TABLE public.encargado (
 
 
 ALTER TABLE public.encargado OWNER TO admin;
-
---
--- Name: TABLE encargado; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.encargado IS 'Personas responsables de un paciente.';
-
-
---
--- Name: COLUMN encargado.nombres; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.encargado.nombres IS 'Nombres del encargado.';
-
-
---
--- Name: COLUMN encargado.apellidos; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.encargado.apellidos IS 'Apellidos del encargado.';
-
-
---
--- Name: COLUMN encargado.dpi; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.encargado.dpi IS 'CUI de 13 dígitos.';
-
-
---
--- Name: COLUMN encargado.telefono; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.encargado.telefono IS 'Teléfono de contacto.';
-
-
---
--- Name: COLUMN encargado.area; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.encargado.area IS 'Área de residencia: Urbana o Rural.';
-
 
 --
 -- Name: encargado_id_encargado_seq; Type: SEQUENCE; Schema: public; Owner: admin
@@ -2611,69 +667,6 @@ CREATE TABLE public.enfermero (
 ALTER TABLE public.enfermero OWNER TO admin;
 
 --
--- Name: TABLE enfermero; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.enfermero IS 'Subtipo de personal: enfermeros registrados y practicantes de enfermería.';
-
-
---
--- Name: COLUMN enfermero.id_enfermero; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.enfermero.id_enfermero IS 'Identificador del enfermero; es el mismo id_personal de su supertipo.';
-
-
---
--- Name: COLUMN enfermero.nombres; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.enfermero.nombres IS 'Copia sincronizada de personal.nombres (la mantiene un disparador).';
-
-
---
--- Name: COLUMN enfermero.apellidos; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.enfermero.apellidos IS 'Copia sincronizada de personal.apellidos.';
-
-
---
--- Name: COLUMN enfermero.dpi; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.enfermero.dpi IS 'Copia sincronizada de personal.dpi.';
-
-
---
--- Name: COLUMN enfermero.telefono; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.enfermero.telefono IS 'Copia sincronizada de personal.telefono.';
-
-
---
--- Name: COLUMN enfermero.id_hospital; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.enfermero.id_hospital IS 'Copia sincronizada de personal.id_hospital.';
-
-
---
--- Name: COLUMN enfermero.tipo; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.enfermero.tipo IS 'registrado o practicante.';
-
-
---
--- Name: COLUMN enfermero.tipo_personal; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.enfermero.tipo_personal IS 'Discriminador fijo en enfermero; junto con id_enfermero forma la FK hacia personal.';
-
-
---
 -- Name: equipo; Type: TABLE; Schema: public; Owner: admin
 --
 
@@ -2685,54 +678,11 @@ CREATE TABLE public.equipo (
     funcion character varying(14) NOT NULL,
     estado character varying(16) DEFAULT 'disponible'::character varying NOT NULL,
     CONSTRAINT ck_equipo_estado CHECK (((estado)::text = ANY ((ARRAY['disponible'::character varying, 'en_uso'::character varying, 'en_mantenimiento'::character varying])::text[]))),
-    CONSTRAINT ck_equipo_funcion CHECK (((funcion)::text = ANY ((ARRAY['exploracion'::character varying, 'diagnostico'::character varying, 'tratamiento'::character varying, 'rehabilitacion'::character varying, 'otro'::character varying])::text[]))),
     CONSTRAINT ck_equipo_tipo CHECK (((tipo)::text = ANY ((ARRAY['medico'::character varying, 'quirurgico'::character varying, 'otro'::character varying])::text[])))
 );
 
 
 ALTER TABLE public.equipo OWNER TO admin;
-
---
--- Name: TABLE equipo; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.equipo IS 'Equipos médicos y quirúrgicos.';
-
-
---
--- Name: COLUMN equipo.nombre; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.equipo.nombre IS 'Nombre del equipo.';
-
-
---
--- Name: COLUMN equipo.descripcion; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.equipo.descripcion IS 'Descripción del equipo.';
-
-
---
--- Name: COLUMN equipo.tipo; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.equipo.tipo IS 'medico, quirurgico u otro.';
-
-
---
--- Name: COLUMN equipo.funcion; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.equipo.funcion IS 'exploracion, diagnostico, tratamiento, rehabilitacion u otro.';
-
-
---
--- Name: COLUMN equipo.estado; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.equipo.estado IS 'disponible, en_uso o en_mantenimiento.';
-
 
 --
 -- Name: equipo_id_equipo_seq; Type: SEQUENCE; Schema: public; Owner: admin
@@ -2763,27 +713,6 @@ CREATE TABLE public.especialidad (
 ALTER TABLE public.especialidad OWNER TO admin;
 
 --
--- Name: TABLE especialidad; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.especialidad IS 'Especialidades médicas clínicas y quirúrgicas.';
-
-
---
--- Name: COLUMN especialidad.nombre; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.especialidad.nombre IS 'Nombre de la especialidad.';
-
-
---
--- Name: COLUMN especialidad.tipo; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.especialidad.tipo IS 'clinica (consulta) o quirurgica (cirugía).';
-
-
---
 -- Name: especialidad_id_especialidad_seq; Type: SEQUENCE; Schema: public; Owner: admin
 --
 
@@ -2810,25 +739,40 @@ CREATE TABLE public.estado_civil (
 ALTER TABLE public.estado_civil OWNER TO admin;
 
 --
--- Name: TABLE estado_civil; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.estado_civil IS 'Catálogo de estados civiles.';
-
-
---
--- Name: COLUMN estado_civil.nombre; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.estado_civil.nombre IS 'Estado civil.';
-
-
---
 -- Name: estado_civil_id_estado_civil_seq; Type: SEQUENCE; Schema: public; Owner: admin
 --
 
 ALTER TABLE public.estado_civil ALTER COLUMN id_estado_civil ADD GENERATED BY DEFAULT AS IDENTITY (
     SEQUENCE NAME public.estado_civil_id_estado_civil_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: examen_laboratorio; Type: TABLE; Schema: public; Owner: admin
+--
+
+CREATE TABLE public.examen_laboratorio (
+    id_examen integer NOT NULL,
+    nombre character varying(100) NOT NULL,
+    descripcion character varying(200),
+    costo numeric(10,2) NOT NULL,
+    CONSTRAINT ck_examen_costo CHECK ((costo >= (0)::numeric))
+);
+
+
+ALTER TABLE public.examen_laboratorio OWNER TO admin;
+
+--
+-- Name: examen_laboratorio_id_examen_seq; Type: SEQUENCE; Schema: public; Owner: admin
+--
+
+ALTER TABLE public.examen_laboratorio ALTER COLUMN id_examen ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.examen_laboratorio_id_examen_seq
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
@@ -2860,41 +804,6 @@ CREATE TABLE public.factura (
 ALTER TABLE public.factura OWNER TO admin;
 
 --
--- Name: TABLE factura; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.factura IS 'Factura emitida al terminar una consulta, emergencia, hospitalización o cirugía.';
-
-
---
--- Name: COLUMN factura.fecha_emision; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.factura.fecha_emision IS 'Fecha y hora de emisión.';
-
-
---
--- Name: COLUMN factura.descripcion; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.factura.descripcion IS 'Descripción breve de los servicios facturados.';
-
-
---
--- Name: COLUMN factura.total; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.factura.total IS 'Monto total en quetzales.';
-
-
---
--- Name: COLUMN factura.numero_cuotas; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.factura.numero_cuotas IS 'Número de cuotas mensuales del plan de pago (1 a 12).';
-
-
---
 -- Name: factura_id_factura_seq; Type: SEQUENCE; Schema: public; Owner: admin
 --
 
@@ -2907,6 +816,42 @@ ALTER TABLE public.factura ALTER COLUMN id_factura ADD GENERATED BY DEFAULT AS I
     CACHE 1
 );
 
+
+--
+-- Name: forma_farmaceutica; Type: TABLE; Schema: public; Owner: admin
+--
+
+CREATE TABLE public.forma_farmaceutica (
+    codigo character varying(12) NOT NULL,
+    descripcion character varying(100) NOT NULL
+);
+
+
+ALTER TABLE public.forma_farmaceutica OWNER TO admin;
+
+--
+-- Name: funcion_equipo; Type: TABLE; Schema: public; Owner: admin
+--
+
+CREATE TABLE public.funcion_equipo (
+    codigo character varying(14) NOT NULL,
+    descripcion character varying(100) NOT NULL
+);
+
+
+ALTER TABLE public.funcion_equipo OWNER TO admin;
+
+--
+-- Name: funcion_instrumento; Type: TABLE; Schema: public; Owner: admin
+--
+
+CREATE TABLE public.funcion_instrumento (
+    codigo character varying(12) NOT NULL,
+    descripcion character varying(100) NOT NULL
+);
+
+
+ALTER TABLE public.funcion_instrumento OWNER TO admin;
 
 --
 -- Name: historia_clinica; Type: TABLE; Schema: public; Owner: admin
@@ -2939,125 +884,6 @@ CREATE TABLE public.historia_clinica (
 ALTER TABLE public.historia_clinica OWNER TO admin;
 
 --
--- Name: TABLE historia_clinica; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.historia_clinica IS 'Interrogatorio y exploración física del paciente antes de la cirugía.';
-
-
---
--- Name: COLUMN historia_clinica.fecha; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.historia_clinica.fecha IS 'Fecha de elaboración.';
-
-
---
--- Name: COLUMN historia_clinica.fuente_interrogatorio; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.historia_clinica.fuente_interrogatorio IS 'directo (del paciente) o indirecto (de un familiar o amigo).';
-
-
---
--- Name: COLUMN historia_clinica.religion; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.historia_clinica.religion IS 'Religión del paciente.';
-
-
---
--- Name: COLUMN historia_clinica.ocupacion; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.historia_clinica.ocupacion IS 'Ocupación del paciente.';
-
-
---
--- Name: COLUMN historia_clinica.lugar_nacimiento; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.historia_clinica.lugar_nacimiento IS 'Lugar de nacimiento.';
-
-
---
--- Name: COLUMN historia_clinica.lugar_residencia; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.historia_clinica.lugar_residencia IS 'Lugar de residencia.';
-
-
---
--- Name: COLUMN historia_clinica.antecedentes_heredofamiliares; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.historia_clinica.antecedentes_heredofamiliares IS 'Antecedentes heredofamiliares.';
-
-
---
--- Name: COLUMN historia_clinica.antecedentes_personales_no_patologicos; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.historia_clinica.antecedentes_personales_no_patologicos IS 'Antecedentes personales no patológicos.';
-
-
---
--- Name: COLUMN historia_clinica.antecedentes_patologicos; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.historia_clinica.antecedentes_patologicos IS 'Antecedentes patológicos.';
-
-
---
--- Name: COLUMN historia_clinica.padecimiento_actual; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.historia_clinica.padecimiento_actual IS 'Padecimiento actual.';
-
-
---
--- Name: COLUMN historia_clinica.interrogatorio_aparatos_sistemas; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.historia_clinica.interrogatorio_aparatos_sistemas IS 'Interrogatorio por aparatos y sistemas.';
-
-
---
--- Name: COLUMN historia_clinica.sintomas_generales_terapeutica; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.historia_clinica.sintomas_generales_terapeutica IS 'Síntomas generales y terapéutica empleada.';
-
-
---
--- Name: COLUMN historia_clinica.estudios_previos; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.historia_clinica.estudios_previos IS 'Estudios previos.';
-
-
---
--- Name: COLUMN historia_clinica.signos_vitales; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.historia_clinica.signos_vitales IS 'Signos vitales.';
-
-
---
--- Name: COLUMN historia_clinica.exploracion_general; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.historia_clinica.exploracion_general IS 'Exploración general.';
-
-
---
--- Name: COLUMN historia_clinica.exploracion_sistematizada; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.historia_clinica.exploracion_sistematizada IS 'Exploración de cabeza, cuello, tórax, abdomen, extremidades, columna y cavidades.';
-
-
---
 -- Name: historia_clinica_id_historia_clinica_seq; Type: SEQUENCE; Schema: public; Owner: admin
 --
 
@@ -3085,34 +911,6 @@ CREATE TABLE public.hospital (
 
 
 ALTER TABLE public.hospital OWNER TO admin;
-
---
--- Name: TABLE hospital; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.hospital IS 'Hospitales de la cadena Hospitales de Occidente.';
-
-
---
--- Name: COLUMN hospital.nombre; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.hospital.nombre IS 'Nombre del hospital.';
-
-
---
--- Name: COLUMN hospital.informacion_especifica; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.hospital.informacion_especifica IS 'Información específica del hospital (nivel, capacidad, especialización).';
-
-
---
--- Name: COLUMN hospital.direccion; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.hospital.direccion IS 'Dirección del hospital.';
-
 
 --
 -- Name: hospital_id_hospital_seq; Type: SEQUENCE; Schema: public; Owner: admin
@@ -3145,27 +943,6 @@ CREATE TABLE public.hospitalizacion_insumo (
 ALTER TABLE public.hospitalizacion_insumo OWNER TO admin;
 
 --
--- Name: TABLE hospitalizacion_insumo; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.hospitalizacion_insumo IS 'Insumos usados durante un internamiento.';
-
-
---
--- Name: COLUMN hospitalizacion_insumo.cantidad; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.hospitalizacion_insumo.cantidad IS 'Cantidad usada durante el internamiento.';
-
-
---
--- Name: COLUMN hospitalizacion_insumo.costo_unitario; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.hospitalizacion_insumo.costo_unitario IS 'Costo por unidad al momento de usarlo.';
-
-
---
 -- Name: ingreso; Type: TABLE; Schema: public; Owner: admin
 --
 
@@ -3191,48 +968,6 @@ CREATE TABLE public.ingreso (
 
 
 ALTER TABLE public.ingreso OWNER TO admin;
-
---
--- Name: TABLE ingreso; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.ingreso IS 'Ficha de ingreso a Emergencias, Cirugía u Hospitalización.';
-
-
---
--- Name: COLUMN ingreso.fecha_hora_ingreso; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.ingreso.fecha_hora_ingreso IS 'Fecha y hora del ingreso.';
-
-
---
--- Name: COLUMN ingreso.motivo_ingreso; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.ingreso.motivo_ingreso IS 'Motivo por el que ingresa el paciente.';
-
-
---
--- Name: COLUMN ingreso.diagnostico_presuntivo; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.ingreso.diagnostico_presuntivo IS 'Diagnóstico presuntivo de ingreso.';
-
-
---
--- Name: COLUMN ingreso.prioridad_triage; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.ingreso.prioridad_triage IS 'Prioridad de atención en emergencias: 1 la más urgente, 5 la menos.';
-
-
---
--- Name: COLUMN ingreso.turnos_espera; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.ingreso.turnos_espera IS 'Turnos que esperó por falta de camilla libre (solo emergencias).';
-
 
 --
 -- Name: ingreso_id_ingreso_seq; Type: SEQUENCE; Schema: public; Owner: admin
@@ -3263,27 +998,6 @@ CREATE TABLE public.institucion_externa (
 ALTER TABLE public.institucion_externa OWNER TO admin;
 
 --
--- Name: TABLE institucion_externa; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.institucion_externa IS 'Hospitales y establecimientos fuera de la cadena que reciben traslados.';
-
-
---
--- Name: COLUMN institucion_externa.nombre; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.institucion_externa.nombre IS 'Nombre de la institución.';
-
-
---
--- Name: COLUMN institucion_externa.direccion; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.institucion_externa.direccion IS 'Dirección de la institución.';
-
-
---
 -- Name: institucion_externa_id_institucion_seq; Type: SEQUENCE; Schema: public; Owner: admin
 --
 
@@ -3309,54 +1023,11 @@ CREATE TABLE public.instrumento (
     funcion character varying(12) NOT NULL,
     estado character varying(16) DEFAULT 'disponible'::character varying NOT NULL,
     CONSTRAINT ck_instrumento_estado CHECK (((estado)::text = ANY ((ARRAY['disponible'::character varying, 'en_uso'::character varying, 'en_mantenimiento'::character varying])::text[]))),
-    CONSTRAINT ck_instrumento_funcion CHECK (((funcion)::text = ANY ((ARRAY['corte'::character varying, 'contencion'::character varying, 'hemostatica'::character varying, 'retractor'::character varying, 'accesorio'::character varying, 'implante'::character varying, 'otro'::character varying])::text[]))),
     CONSTRAINT ck_instrumento_tipo CHECK (((tipo)::text = ANY ((ARRAY['medico'::character varying, 'quirurgico'::character varying, 'otro'::character varying])::text[])))
 );
 
 
 ALTER TABLE public.instrumento OWNER TO admin;
-
---
--- Name: TABLE instrumento; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.instrumento IS 'Instrumental médico y quirúrgico.';
-
-
---
--- Name: COLUMN instrumento.nombre; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.instrumento.nombre IS 'Nombre del instrumento.';
-
-
---
--- Name: COLUMN instrumento.descripcion; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.instrumento.descripcion IS 'Descripción del instrumento.';
-
-
---
--- Name: COLUMN instrumento.tipo; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.instrumento.tipo IS 'medico, quirurgico u otro.';
-
-
---
--- Name: COLUMN instrumento.funcion; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.instrumento.funcion IS 'corte, contencion, hemostatica, retractor, accesorio, implante u otro.';
-
-
---
--- Name: COLUMN instrumento.estado; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.instrumento.estado IS 'disponible, en_uso o en_mantenimiento.';
-
 
 --
 -- Name: instrumento_id_instrumento_seq; Type: SEQUENCE; Schema: public; Owner: admin
@@ -3395,69 +1066,6 @@ CREATE TABLE public.insumo (
 ALTER TABLE public.insumo OWNER TO admin;
 
 --
--- Name: TABLE insumo; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.insumo IS 'Insumos médicos y quirúrgicos con su inventario.';
-
-
---
--- Name: COLUMN insumo.nombre; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.insumo.nombre IS 'Nombre del insumo.';
-
-
---
--- Name: COLUMN insumo.descripcion; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.insumo.descripcion IS 'Descripción del insumo.';
-
-
---
--- Name: COLUMN insumo.material; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.insumo.material IS 'Material del que está hecho.';
-
-
---
--- Name: COLUMN insumo.tipo; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.insumo.tipo IS 'medico, quirurgico u otro.';
-
-
---
--- Name: COLUMN insumo.unidad_medida; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.insumo.unidad_medida IS 'Unidad en que se despacha (caja, unidad, bolsa...).';
-
-
---
--- Name: COLUMN insumo.costo_unitario; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.insumo.costo_unitario IS 'Costo actual por unidad.';
-
-
---
--- Name: COLUMN insumo.stock_minimo; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.insumo.stock_minimo IS 'Existencia mínima antes de reabastecer.';
-
-
---
--- Name: COLUMN insumo.stock_actual; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.insumo.stock_actual IS 'Existencia actual en inventario.';
-
-
---
 -- Name: insumo_id_insumo_seq; Type: SEQUENCE; Schema: public; Owner: admin
 --
 
@@ -3479,40 +1087,11 @@ CREATE TABLE public.medicamento (
     id_medicamento integer NOT NULL,
     nombre_generico character varying(80) NOT NULL,
     concentracion character varying(30) NOT NULL,
-    forma_farmaceutica character varying(12) NOT NULL,
-    CONSTRAINT ck_medicamento_forma CHECK (((forma_farmaceutica)::text = ANY ((ARRAY['tableta'::character varying, 'capsula'::character varying, 'jarabe'::character varying, 'suspension'::character varying, 'inyectable'::character varying, 'crema'::character varying, 'gotas'::character varying, 'inhalador'::character varying])::text[])))
+    forma_farmaceutica character varying(12) NOT NULL
 );
 
 
 ALTER TABLE public.medicamento OWNER TO admin;
-
---
--- Name: TABLE medicamento; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.medicamento IS 'Medicamentos que se pueden recetar.';
-
-
---
--- Name: COLUMN medicamento.nombre_generico; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.medicamento.nombre_generico IS 'Nombre genérico (principio activo).';
-
-
---
--- Name: COLUMN medicamento.concentracion; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.medicamento.concentracion IS 'Concentración por unidad (ej. 50 mg).';
-
-
---
--- Name: COLUMN medicamento.forma_farmaceutica; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.medicamento.forma_farmaceutica IS 'Presentación: tableta, cápsula, jarabe, inyectable...';
-
 
 --
 -- Name: medicamento_id_medicamento_seq; Type: SEQUENCE; Schema: public; Owner: admin
@@ -3559,7 +1138,6 @@ CREATE TABLE public.medico (
     CONSTRAINT ck_medico_horario_completo CHECK (((horario_inicio IS NULL) = (horario_fin IS NULL))),
     CONSTRAINT ck_medico_superior_propio CHECK ((id_medico_superior <> id_medico)),
     CONSTRAINT ck_medico_telefono CHECK (((telefono)::text ~ '^[0-9]{4}-?[0-9]{4}$'::text)),
-    CONSTRAINT ck_medico_tipo CHECK (((tipo_medico)::text = ANY ((ARRAY['general'::character varying, 'especialista'::character varying, 'residente'::character varying, 'interno'::character varying, 'externo'::character varying])::text[]))),
     CONSTRAINT ck_medico_tipo_personal CHECK (((tipo_personal)::text = 'medico'::text))
 );
 
@@ -3567,123 +1145,16 @@ CREATE TABLE public.medico (
 ALTER TABLE public.medico OWNER TO admin;
 
 --
--- Name: TABLE medico; Type: COMMENT; Schema: public; Owner: admin
+-- Name: medio_asignacion; Type: TABLE; Schema: public; Owner: admin
 --
 
-COMMENT ON TABLE public.medico IS 'Subtipo de personal: médicos de la cadena (los externos no están contratados, solo operan).';
+CREATE TABLE public.medio_asignacion (
+    codigo character varying(20) NOT NULL,
+    descripcion character varying(100) NOT NULL
+);
 
 
---
--- Name: COLUMN medico.id_medico; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.medico.id_medico IS 'Identificador del médico; es el mismo id_personal de su supertipo.';
-
-
---
--- Name: COLUMN medico.nombres; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.medico.nombres IS 'Copia sincronizada de personal.nombres (la mantiene un disparador).';
-
-
---
--- Name: COLUMN medico.apellidos; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.medico.apellidos IS 'Copia sincronizada de personal.apellidos.';
-
-
---
--- Name: COLUMN medico.dpi; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.medico.dpi IS 'Copia sincronizada de personal.dpi.';
-
-
---
--- Name: COLUMN medico.telefono; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.medico.telefono IS 'Copia sincronizada de personal.telefono.';
-
-
---
--- Name: COLUMN medico.id_hospital; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.medico.id_hospital IS 'Copia sincronizada de personal.id_hospital.';
-
-
---
--- Name: COLUMN medico.id_municipio; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.medico.id_municipio IS 'Copia sincronizada de personal.id_municipio.';
-
-
---
--- Name: COLUMN medico.area; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.medico.area IS 'Copia sincronizada de personal.area.';
-
-
---
--- Name: COLUMN medico.id_especialidad; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.medico.id_especialidad IS 'Especialidad del médico. Se audita cada cambio.';
-
-
---
--- Name: COLUMN medico.tipo_medico; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.medico.tipo_medico IS 'Modalidad: general, especialista, residente, interno o externo.';
-
-
---
--- Name: COLUMN medico.costo_primera_consulta; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.medico.costo_primera_consulta IS 'Costo de la primera consulta; base para reconsultas y referidos.';
-
-
---
--- Name: COLUMN medico.horario_inicio; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.medico.horario_inicio IS 'Inicio del horario de consulta externa (turno matutino).';
-
-
---
--- Name: COLUMN medico.horario_fin; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.medico.horario_fin IS 'Fin del horario de consulta externa.';
-
-
---
--- Name: COLUMN medico.tipo_personal; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.medico.tipo_personal IS 'Discriminador fijo en medico; junto con id_medico forma la FK hacia personal.';
-
-
---
--- Name: COLUMN medico.cargo; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.medico.cargo IS 'Cargo en la cadena de mando: director_medico, jefe_servicio o medico.';
-
-
---
--- Name: COLUMN medico.id_medico_superior; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.medico.id_medico_superior IS 'Superior directo dentro del mismo hospital (relación recursiva); nulo para el director.';
-
+ALTER TABLE public.medio_asignacion OWNER TO admin;
 
 --
 -- Name: metodo_pago; Type: TABLE; Schema: public; Owner: admin
@@ -3696,20 +1167,6 @@ CREATE TABLE public.metodo_pago (
 
 
 ALTER TABLE public.metodo_pago OWNER TO admin;
-
---
--- Name: TABLE metodo_pago; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.metodo_pago IS 'Métodos de pago aceptados.';
-
-
---
--- Name: COLUMN metodo_pago.nombre; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.metodo_pago.nombre IS 'Método de pago.';
-
 
 --
 -- Name: metodo_pago_id_metodo_pago_seq; Type: SEQUENCE; Schema: public; Owner: admin
@@ -3739,25 +1196,51 @@ CREATE TABLE public.municipio (
 ALTER TABLE public.municipio OWNER TO admin;
 
 --
--- Name: TABLE municipio; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.municipio IS 'Municipios de cada departamento.';
-
-
---
--- Name: COLUMN municipio.nombre; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.municipio.nombre IS 'Nombre del municipio.';
-
-
---
 -- Name: municipio_id_municipio_seq; Type: SEQUENCE; Schema: public; Owner: admin
 --
 
 ALTER TABLE public.municipio ALTER COLUMN id_municipio ADD GENERATED BY DEFAULT AS IDENTITY (
     SEQUENCE NAME public.municipio_id_municipio_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: orden_examen; Type: TABLE; Schema: public; Owner: admin
+--
+
+CREATE TABLE public.orden_examen (
+    id_orden integer NOT NULL,
+    id_examen integer NOT NULL
+);
+
+
+ALTER TABLE public.orden_examen OWNER TO admin;
+
+--
+-- Name: orden_laboratorio; Type: TABLE; Schema: public; Owner: admin
+--
+
+CREATE TABLE public.orden_laboratorio (
+    id_orden integer NOT NULL,
+    id_consulta integer NOT NULL,
+    fecha date NOT NULL,
+    indicaciones text
+);
+
+
+ALTER TABLE public.orden_laboratorio OWNER TO admin;
+
+--
+-- Name: orden_laboratorio_id_orden_seq; Type: SEQUENCE; Schema: public; Owner: admin
+--
+
+ALTER TABLE public.orden_laboratorio ALTER COLUMN id_orden ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.orden_laboratorio_id_orden_seq
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
@@ -3794,76 +1277,6 @@ CREATE TABLE public.paciente (
 ALTER TABLE public.paciente OWNER TO admin;
 
 --
--- Name: TABLE paciente; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.paciente IS 'Pacientes atendidos en la red.';
-
-
---
--- Name: COLUMN paciente.numero_expediente; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.paciente.numero_expediente IS 'Número de expediente clínico del paciente.';
-
-
---
--- Name: COLUMN paciente.nombres; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.paciente.nombres IS 'Nombres del paciente.';
-
-
---
--- Name: COLUMN paciente.apellidos; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.paciente.apellidos IS 'Apellidos del paciente.';
-
-
---
--- Name: COLUMN paciente.fecha_nacimiento; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.paciente.fecha_nacimiento IS 'Fecha de nacimiento; la edad se calcula con fn_edad.';
-
-
---
--- Name: COLUMN paciente.sexo; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.paciente.sexo IS 'Masculino o Femenino.';
-
-
---
--- Name: COLUMN paciente.dpi; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.paciente.dpi IS 'CUI de 13 dígitos; opcional para menores de edad.';
-
-
---
--- Name: COLUMN paciente.telefono; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.paciente.telefono IS 'Teléfono de contacto.';
-
-
---
--- Name: COLUMN paciente.area; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.paciente.area IS 'Área de residencia: Urbana o Rural.';
-
-
---
--- Name: COLUMN paciente.numero_seguro_social; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.paciente.numero_seguro_social IS 'Número de afiliación al seguro social, si tiene.';
-
-
---
 -- Name: paciente_encargado; Type: TABLE; Schema: public; Owner: admin
 --
 
@@ -3875,13 +1288,6 @@ CREATE TABLE public.paciente_encargado (
 
 
 ALTER TABLE public.paciente_encargado OWNER TO admin;
-
---
--- Name: TABLE paciente_encargado; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.paciente_encargado IS 'Encargados de cada paciente y su parentesco.';
-
 
 --
 -- Name: paciente_id_paciente_seq; Type: SEQUENCE; Schema: public; Owner: admin
@@ -3916,34 +1322,6 @@ CREATE TABLE public.pago (
 ALTER TABLE public.pago OWNER TO admin;
 
 --
--- Name: TABLE pago; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.pago IS 'Pago de una cuota de la factura.';
-
-
---
--- Name: COLUMN pago.numero_cuota; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.pago.numero_cuota IS 'Número de cuota que se paga.';
-
-
---
--- Name: COLUMN pago.monto; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.pago.monto IS 'Monto pagado.';
-
-
---
--- Name: COLUMN pago.fecha_pago; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.pago.fecha_pago IS 'Fecha del pago.';
-
-
---
 -- Name: pago_id_pago_seq; Type: SEQUENCE; Schema: public; Owner: admin
 --
 
@@ -3968,20 +1346,6 @@ CREATE TABLE public.parentesco (
 
 
 ALTER TABLE public.parentesco OWNER TO admin;
-
---
--- Name: TABLE parentesco; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.parentesco IS 'Catálogo de parentescos entre paciente y encargado.';
-
-
---
--- Name: COLUMN parentesco.nombre; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.parentesco.nombre IS 'Parentesco o relación con el paciente.';
-
 
 --
 -- Name: parentesco_id_parentesco_seq; Type: SEQUENCE; Schema: public; Owner: admin
@@ -4018,113 +1382,15 @@ CREATE TABLE public.personal (
     CONSTRAINT ck_personal_area CHECK (((area)::text = ANY ((ARRAY['Urbana'::character varying, 'Rural'::character varying])::text[]))),
     CONSTRAINT ck_personal_contratacion CHECK ((fecha_contratacion >= '1970-01-01'::date)),
     CONSTRAINT ck_personal_contratado CHECK (((fecha_contratacion IS NULL) = (salario IS NULL))),
-    CONSTRAINT ck_personal_dpi CHECK ((dpi ~ '^[0-9]{13}$'::text)),
+    CONSTRAINT ck_personal_dpi CHECK ((length(dpi) = 13)),
     CONSTRAINT ck_personal_nivel_acceso CHECK (((nivel_acceso)::text = ANY ((ARRAY['consulta'::character varying, 'operativo'::character varying, 'supervisor'::character varying, 'administrador'::character varying])::text[]))),
     CONSTRAINT ck_personal_salario CHECK ((salario >= (0)::numeric)),
-    CONSTRAINT ck_personal_telefono CHECK (((telefono)::text ~ '^[0-9]{4}-?[0-9]{4}$'::text)),
+    CONSTRAINT ck_personal_telefono CHECK (((length((telefono)::text) >= 8) AND (length((telefono)::text) <= 9))),
     CONSTRAINT ck_personal_tipo CHECK (((tipo_personal)::text = ANY ((ARRAY['medico'::character varying, 'enfermero'::character varying])::text[])))
 );
 
 
 ALTER TABLE public.personal OWNER TO admin;
-
---
--- Name: TABLE personal; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.personal IS 'Supertipo con los datos comunes de todo el personal del hospital; sus subtipos son medico y enfermero.';
-
-
---
--- Name: COLUMN personal.id_personal; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.personal.id_personal IS 'Identificador de la persona; es también la llave de su subtipo.';
-
-
---
--- Name: COLUMN personal.tipo_personal; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.personal.tipo_personal IS 'Discriminador: indica si la persona es medico o enfermero.';
-
-
---
--- Name: COLUMN personal.nombres; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.personal.nombres IS 'Nombres de la persona.';
-
-
---
--- Name: COLUMN personal.apellidos; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.personal.apellidos IS 'Apellidos de la persona.';
-
-
---
--- Name: COLUMN personal.dpi; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.personal.dpi IS 'Documento Personal de Identificación (CUI de 13 dígitos).';
-
-
---
--- Name: COLUMN personal.telefono; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.personal.telefono IS 'Teléfono de contacto.';
-
-
---
--- Name: COLUMN personal.direccion; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.personal.direccion IS 'Dirección de residencia.';
-
-
---
--- Name: COLUMN personal.id_municipio; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.personal.id_municipio IS 'Municipio de residencia.';
-
-
---
--- Name: COLUMN personal.area; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.personal.area IS 'Área de residencia: Urbana o Rural.';
-
-
---
--- Name: COLUMN personal.id_hospital; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.personal.id_hospital IS 'Hospital donde trabaja.';
-
-
---
--- Name: COLUMN personal.fecha_contratacion; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.personal.fecha_contratacion IS 'Fecha de contratación; nula para los médicos externos, que no están contratados.';
-
-
---
--- Name: COLUMN personal.salario; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.personal.salario IS 'Salario mensual en quetzales; nulo si no está contratado. Se audita cada cambio.';
-
-
---
--- Name: COLUMN personal.nivel_acceso; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.personal.nivel_acceso IS 'Nivel de acceso al sistema: consulta, operativo, supervisor o administrador. Se audita cada cambio.';
-
 
 --
 -- Name: personal_id_personal_seq; Type: SEQUENCE; Schema: public; Owner: admin
@@ -4157,27 +1423,6 @@ CREATE TABLE public.quirofano (
 ALTER TABLE public.quirofano OWNER TO admin;
 
 --
--- Name: TABLE quirofano; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.quirofano IS 'Quirófanos de la unidad de Cirugía.';
-
-
---
--- Name: COLUMN quirofano.numero; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.quirofano.numero IS 'Número del quirófano dentro de la unidad de cirugía.';
-
-
---
--- Name: COLUMN quirofano.estado; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.quirofano.estado IS 'Estado: disponible, ocupado o en_mantenimiento.';
-
-
---
 -- Name: quirofano_id_quirofano_seq; Type: SEQUENCE; Schema: public; Owner: admin
 --
 
@@ -4203,20 +1448,6 @@ CREATE TABLE public.receta (
 
 
 ALTER TABLE public.receta OWNER TO admin;
-
---
--- Name: TABLE receta; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.receta IS 'Receta entregada al final de la consulta.';
-
-
---
--- Name: COLUMN receta.fecha_proxima_cita; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.receta.fecha_proxima_cita IS 'Fecha sugerida para la próxima cita de seguimiento.';
-
 
 --
 -- Name: receta_id_receta_seq; Type: SEQUENCE; Schema: public; Owner: admin
@@ -4247,27 +1478,6 @@ CREATE TABLE public.receta_medicamento (
 ALTER TABLE public.receta_medicamento OWNER TO admin;
 
 --
--- Name: TABLE receta_medicamento; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.receta_medicamento IS 'Medicamentos prescritos en cada receta.';
-
-
---
--- Name: COLUMN receta_medicamento.dosis; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.receta_medicamento.dosis IS 'Dosis indicada.';
-
-
---
--- Name: COLUMN receta_medicamento.duracion; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.receta_medicamento.duracion IS 'Duración del tratamiento.';
-
-
---
 -- Name: registro_procedimiento; Type: TABLE; Schema: public; Owner: admin
 --
 
@@ -4284,34 +1494,6 @@ CREATE TABLE public.registro_procedimiento (
 
 
 ALTER TABLE public.registro_procedimiento OWNER TO admin;
-
---
--- Name: TABLE registro_procedimiento; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.registro_procedimiento IS 'Resultado de cada aspecto verificado durante la cirugía.';
-
-
---
--- Name: COLUMN registro_procedimiento.resultado; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.registro_procedimiento.resultado IS 'exito/falla, o aceptable/medianamente_aceptable/no_aceptable.';
-
-
---
--- Name: COLUMN registro_procedimiento.descripcion; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.registro_procedimiento.descripcion IS 'Descripción de lo observado.';
-
-
---
--- Name: COLUMN registro_procedimiento.fecha_hora_registro; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.registro_procedimiento.fecha_hora_registro IS 'Hora en que se registró.';
-
 
 --
 -- Name: registro_procedimiento_id_registro_seq; Type: SEQUENCE; Schema: public; Owner: admin
@@ -4342,20 +1524,6 @@ CREATE TABLE public.requerimiento_equipo (
 ALTER TABLE public.requerimiento_equipo OWNER TO admin;
 
 --
--- Name: TABLE requerimiento_equipo; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.requerimiento_equipo IS 'Equipos que solicita el cirujano en el agendamiento.';
-
-
---
--- Name: COLUMN requerimiento_equipo.cantidad; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.requerimiento_equipo.cantidad IS 'Cantidad solicitada.';
-
-
---
 -- Name: requerimiento_instrumento; Type: TABLE; Schema: public; Owner: admin
 --
 
@@ -4368,20 +1536,6 @@ CREATE TABLE public.requerimiento_instrumento (
 
 
 ALTER TABLE public.requerimiento_instrumento OWNER TO admin;
-
---
--- Name: TABLE requerimiento_instrumento; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.requerimiento_instrumento IS 'Instrumental que solicita el cirujano en el agendamiento.';
-
-
---
--- Name: COLUMN requerimiento_instrumento.cantidad; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.requerimiento_instrumento.cantidad IS 'Cantidad solicitada.';
-
 
 --
 -- Name: requerimiento_insumo; Type: TABLE; Schema: public; Owner: admin
@@ -4398,20 +1552,6 @@ CREATE TABLE public.requerimiento_insumo (
 ALTER TABLE public.requerimiento_insumo OWNER TO admin;
 
 --
--- Name: TABLE requerimiento_insumo; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.requerimiento_insumo IS 'Insumos que solicita el cirujano en el agendamiento.';
-
-
---
--- Name: COLUMN requerimiento_insumo.cantidad; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.requerimiento_insumo.cantidad IS 'Cantidad solicitada.';
-
-
---
 -- Name: rol_quirurgico; Type: TABLE; Schema: public; Owner: admin
 --
 
@@ -4424,27 +1564,6 @@ CREATE TABLE public.rol_quirurgico (
 
 
 ALTER TABLE public.rol_quirurgico OWNER TO admin;
-
---
--- Name: TABLE rol_quirurgico; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.rol_quirurgico IS 'Rol que cumple cada persona del equipo quirúrgico.';
-
-
---
--- Name: COLUMN rol_quirurgico.nombre; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.rol_quirurgico.nombre IS 'Nombre del rol.';
-
-
---
--- Name: COLUMN rol_quirurgico.tipo_personal; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.rol_quirurgico.tipo_personal IS 'Quién cumple el rol: medico o enfermero.';
-
 
 --
 -- Name: rol_quirurgico_id_rol_seq; Type: SEQUENCE; Schema: public; Owner: admin
@@ -4476,27 +1595,6 @@ CREATE TABLE public.servicio_atencion (
 ALTER TABLE public.servicio_atencion OWNER TO admin;
 
 --
--- Name: TABLE servicio_atencion; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.servicio_atencion IS 'Tipo de atención médica que ofrece cada unidad, con su costo.';
-
-
---
--- Name: COLUMN servicio_atencion.nombre; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.servicio_atencion.nombre IS 'Nombre del servicio de atención.';
-
-
---
--- Name: COLUMN servicio_atencion.costo; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.servicio_atencion.costo IS 'Costo del servicio en quetzales.';
-
-
---
 -- Name: servicio_atencion_id_servicio_seq; Type: SEQUENCE; Schema: public; Owner: admin
 --
 
@@ -4521,20 +1619,6 @@ CREATE TABLE public.tipo_anestesia (
 
 
 ALTER TABLE public.tipo_anestesia OWNER TO admin;
-
---
--- Name: TABLE tipo_anestesia; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.tipo_anestesia IS 'Catálogo de tipos de anestesia.';
-
-
---
--- Name: COLUMN tipo_anestesia.nombre; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.tipo_anestesia.nombre IS 'Tipo de anestesia.';
-
 
 --
 -- Name: tipo_anestesia_id_tipo_anestesia_seq; Type: SEQUENCE; Schema: public; Owner: admin
@@ -4564,20 +1648,6 @@ CREATE TABLE public.tipo_cirugia (
 ALTER TABLE public.tipo_cirugia OWNER TO admin;
 
 --
--- Name: TABLE tipo_cirugia; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.tipo_cirugia IS 'Procedimientos quirúrgicos que ofrece la red.';
-
-
---
--- Name: COLUMN tipo_cirugia.nombre; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.tipo_cirugia.nombre IS 'Nombre del procedimiento quirúrgico.';
-
-
---
 -- Name: tipo_cirugia_id_tipo_cirugia_seq; Type: SEQUENCE; Schema: public; Owner: admin
 --
 
@@ -4590,6 +1660,18 @@ ALTER TABLE public.tipo_cirugia ALTER COLUMN id_tipo_cirugia ADD GENERATED BY DE
     CACHE 1
 );
 
+
+--
+-- Name: tipo_medico; Type: TABLE; Schema: public; Owner: admin
+--
+
+CREATE TABLE public.tipo_medico (
+    codigo character varying(12) NOT NULL,
+    descripcion character varying(100) NOT NULL
+);
+
+
+ALTER TABLE public.tipo_medico OWNER TO admin;
 
 --
 -- Name: traslado; Type: TABLE; Schema: public; Owner: admin
@@ -4613,27 +1695,6 @@ CREATE TABLE public.traslado (
 
 
 ALTER TABLE public.traslado OWNER TO admin;
-
---
--- Name: TABLE traslado; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.traslado IS 'Ficha de traslado de un paciente entre unidades o hacia fuera de la red.';
-
-
---
--- Name: COLUMN traslado.fecha_hora; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.traslado.fecha_hora IS 'Fecha y hora del traslado.';
-
-
---
--- Name: COLUMN traslado.tipo_traslado; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.traslado.tipo_traslado IS 'interno (dentro de la red) o externo (fuera de la red).';
-
 
 --
 -- Name: traslado_id_traslado_seq; Type: SEQUENCE; Schema: public; Owner: admin
@@ -4665,27 +1726,6 @@ CREATE TABLE public.turno_emergencia (
 ALTER TABLE public.turno_emergencia OWNER TO admin;
 
 --
--- Name: TABLE turno_emergencia; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.turno_emergencia IS 'Turnos de 12 horas de la unidad de Emergencias.';
-
-
---
--- Name: COLUMN turno_emergencia.fecha; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.turno_emergencia.fecha IS 'Fecha en que inicia el turno.';
-
-
---
--- Name: COLUMN turno_emergencia.jornada; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.turno_emergencia.jornada IS 'diurno (07:00-19:00) o nocturno (19:00-07:00).';
-
-
---
 -- Name: turno_emergencia_id_turno_seq; Type: SEQUENCE; Schema: public; Owner: admin
 --
 
@@ -4712,13 +1752,6 @@ CREATE TABLE public.turno_medico (
 ALTER TABLE public.turno_medico OWNER TO admin;
 
 --
--- Name: TABLE turno_medico; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.turno_medico IS 'Médicos asignados a cada turno de emergencia.';
-
-
---
 -- Name: unidad_medica; Type: TABLE; Schema: public; Owner: admin
 --
 
@@ -4736,27 +1769,6 @@ CREATE TABLE public.unidad_medica (
 ALTER TABLE public.unidad_medica OWNER TO admin;
 
 --
--- Name: TABLE unidad_medica; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.unidad_medica IS 'Unidades de atención de cada hospital: Consulta Externa, Emergencias, Cirugía y Hospitalización.';
-
-
---
--- Name: COLUMN unidad_medica.tipo_unidad; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.unidad_medica.tipo_unidad IS 'Tipo de unidad: Consulta Externa, Emergencias, Cirugía u Hospitalización.';
-
-
---
--- Name: COLUMN unidad_medica.costo_dia_hospitalizacion; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON COLUMN public.unidad_medica.costo_dia_hospitalizacion IS 'Costo por día internado; solo aplica a Hospitalización.';
-
-
---
 -- Name: unidad_medica_id_unidad_seq; Type: SEQUENCE; Schema: public; Owner: admin
 --
 
@@ -4768,230 +1780,6 @@ ALTER TABLE public.unidad_medica ALTER COLUMN id_unidad ADD GENERATED BY DEFAULT
     NO MAXVALUE
     CACHE 1
 );
-
-
---
--- Name: v_cirugia; Type: VIEW; Schema: public; Owner: admin
---
-
-CREATE VIEW public.v_cirugia AS
- SELECT c.id_cirugia,
-    a.id_agendamiento,
-    a.id_paciente,
-    a.id_medico_cirujano,
-    a.id_tipo_cirugia,
-    u.id_hospital,
-    c.id_quirofano,
-    c.fecha_hora_inicio,
-    c.fecha_hora_fin,
-    c.estado,
-    c.condicion_evolucion
-   FROM (((public.cirugia c
-     JOIN public.agendamiento_quirurgico a ON ((a.id_agendamiento = c.id_agendamiento)))
-     JOIN public.quirofano q ON ((q.id_quirofano = c.id_quirofano)))
-     JOIN public.unidad_medica u ON ((u.id_unidad = q.id_unidad)));
-
-
-ALTER VIEW public.v_cirugia OWNER TO admin;
-
---
--- Name: v_consulta; Type: VIEW; Schema: public; Owner: admin
---
-
-CREATE VIEW public.v_consulta AS
- SELECT co.id_consulta,
-    ci.id_cita,
-    ci.fecha_hora,
-    ci.id_paciente,
-    ci.id_medico,
-    me.id_hospital,
-    me.id_especialidad,
-    co.id_diagnostico,
-    ci.costo_final
-   FROM ((public.consulta co
-     JOIN public.cita ci ON ((ci.id_cita = co.id_cita)))
-     JOIN public.medico me ON ((me.id_medico = ci.id_medico)));
-
-
-ALTER VIEW public.v_consulta OWNER TO admin;
-
---
--- Name: v_estancia; Type: VIEW; Schema: public; Owner: admin
---
-
-CREATE VIEW public.v_estancia AS
- SELECT i.id_ingreso,
-    i.id_paciente,
-    u.id_hospital,
-    i.id_unidad,
-    u.tipo_unidad,
-    i.id_servicio,
-    i.id_camilla,
-    i.fecha_hora_ingreso,
-    public.fn_edad(p.fecha_nacimiento, (i.fecha_hora_ingreso)::date) AS edad_al_ingreso,
-    e.id_egreso,
-    e.fecha_hora_egreso,
-    e.codigo_egreso,
-    ((e.fecha_hora_egreso)::date - (i.fecha_hora_ingreso)::date) AS dias_hospitalizado
-   FROM (((public.ingreso i
-     JOIN public.unidad_medica u ON ((u.id_unidad = i.id_unidad)))
-     JOIN public.paciente p ON ((p.id_paciente = i.id_paciente)))
-     LEFT JOIN public.egreso e ON ((e.id_ingreso = i.id_ingreso)));
-
-
-ALTER VIEW public.v_estancia OWNER TO admin;
-
---
--- Name: v_factura; Type: VIEW; Schema: public; Owner: admin
---
-
-CREATE VIEW public.v_factura AS
- SELECT f.id_factura,
-    f.fecha_emision,
-    f.total,
-    f.numero_cuotas,
-    COALESCE(ci.id_paciente, i.id_paciente, a.id_paciente) AS id_paciente,
-    u.id_hospital,
-    u.id_unidad,
-    u.tipo_unidad,
-    COALESCE(pg.total_pagado, (0)::numeric) AS total_pagado,
-    (f.total - COALESCE(pg.total_pagado, (0)::numeric)) AS saldo
-   FROM (((((((((public.factura f
-     LEFT JOIN public.cita ci ON ((ci.id_cita = f.id_cita)))
-     LEFT JOIN public.medico me ON ((me.id_medico = ci.id_medico)))
-     LEFT JOIN public.unidad_medica uc ON (((uc.id_hospital = me.id_hospital) AND ((uc.tipo_unidad)::text = 'Consulta Externa'::text))))
-     LEFT JOIN public.ingreso i ON ((i.id_ingreso = f.id_ingreso)))
-     LEFT JOIN public.cirugia c ON ((c.id_cirugia = f.id_cirugia)))
-     LEFT JOIN public.agendamiento_quirurgico a ON ((a.id_agendamiento = c.id_agendamiento)))
-     LEFT JOIN public.quirofano q ON ((q.id_quirofano = c.id_quirofano)))
-     JOIN public.unidad_medica u ON ((u.id_unidad = COALESCE(uc.id_unidad, i.id_unidad, q.id_unidad))))
-     LEFT JOIN ( SELECT pago.id_factura,
-            sum(pago.monto) AS total_pagado
-           FROM public.pago
-          GROUP BY pago.id_factura) pg ON ((pg.id_factura = f.id_factura)));
-
-
-ALTER VIEW public.v_factura OWNER TO admin;
-
---
--- Name: v_paciente; Type: VIEW; Schema: public; Owner: admin
---
-
-CREATE VIEW public.v_paciente AS
- SELECT p.id_paciente,
-    p.numero_expediente,
-    p.nombres,
-    p.apellidos,
-    p.fecha_nacimiento,
-    public.fn_edad(p.fecha_nacimiento) AS edad,
-    p.sexo,
-    p.dpi,
-    p.telefono,
-    ec.nombre AS estado_civil,
-    m.nombre AS municipio,
-    d.nombre AS departamento,
-    p.area,
-    p.numero_seguro_social
-   FROM (((public.paciente p
-     JOIN public.municipio m ON ((m.id_municipio = p.id_municipio)))
-     JOIN public.departamento d ON ((d.id_departamento = m.id_departamento)))
-     LEFT JOIN public.estado_civil ec ON ((ec.id_estado_civil = p.id_estado_civil)));
-
-
-ALTER VIEW public.v_paciente OWNER TO admin;
-
---
--- Data for Name: cirugia; Type: TABLE DATA; Schema: propuesta_bloque_e; Owner: admin
---
-
-COPY propuesta_bloque_e.cirugia (id_cirugia, id_cirujano, id_paciente, codigo_cie10, fecha) FROM stdin;
-1	1	1	K35.8	2026-03-02
-2	1	2	K40.9	2026-03-09
-3	1	3	K35.8	2026-03-15
-4	2	4	S72.0	2026-03-20
-\.
-
-
---
--- Data for Name: cirugia_insumo; Type: TABLE DATA; Schema: propuesta_bloque_e; Owner: admin
---
-
-COPY propuesta_bloque_e.cirugia_insumo (id_cirugia, id_insumo, cantidad) FROM stdin;
-4	3	1
-3	4	2
-2	4	3
-1	4	4
-3	1	1
-1	2	2
-4	4	6
-\.
-
-
---
--- Data for Name: cirujano; Type: TABLE DATA; Schema: propuesta_bloque_e; Owner: admin
---
-
-COPY propuesta_bloque_e.cirujano (id_cirujano, nombres, apellidos, id_especialidad) FROM stdin;
-1	Ana	López	1
-2	Luis	Rojas	2
-\.
-
-
---
--- Data for Name: diagnostico; Type: TABLE DATA; Schema: propuesta_bloque_e; Owner: admin
---
-
-COPY propuesta_bloque_e.diagnostico (codigo_cie10, descripcion) FROM stdin;
-S72.0	Fractura del cuello del fémur
-K40.9	Hernia inguinal
-K35.8	Apendicitis aguda
-\.
-
-
---
--- Data for Name: especialidad; Type: TABLE DATA; Schema: propuesta_bloque_e; Owner: admin
---
-
-COPY propuesta_bloque_e.especialidad (id_especialidad, nombre) FROM stdin;
-1	Cirugía General
-2	Cirugía Ortopédica
-\.
-
-
---
--- Data for Name: insumo; Type: TABLE DATA; Schema: propuesta_bloque_e; Owner: admin
---
-
-COPY propuesta_bloque_e.insumo (id_insumo, nombre) FROM stdin;
-1	Hoja de bisturí #10
-2	Sutura vicryl 3-0
-3	Placa de osteosíntesis
-4	Gasas estériles
-\.
-
-
---
--- Data for Name: paciente; Type: TABLE DATA; Schema: propuesta_bloque_e; Owner: admin
---
-
-COPY propuesta_bloque_e.paciente (id_paciente, nombres, apellidos) FROM stdin;
-1	Pedro	Gómez
-2	Lucía	Paz
-3	Mario	Sic
-4	Sofía	Tum
-\.
-
-
---
--- Data for Name: reporte_cirugia; Type: TABLE DATA; Schema: propuesta_bloque_e; Owner: admin
---
-
-COPY propuesta_bloque_e.reporte_cirugia (id_cirugia, nombre_cirujano, especialidad_cirujano, nombre_paciente, codigo_diagnostico, descripcion_diagnostico, nombre_insumo_1, cantidad_insumo_1, nombre_insumo_2, cantidad_insumo_2, fecha) FROM stdin;
-1	Ana López	Cirugía General	Pedro Gómez	K35.8	Apendicitis aguda	Gasas estériles	4	Sutura vicryl 3-0	2	2026-03-02
-2	Ana López	Cirugía General	Lucía Paz	K40.9	Hernia inguinal	Gasas estériles	3	\N	\N	2026-03-09
-3	Ana López	Videolaparoscopia	Mario Sic	K35.8	Apendicitis aguda	Gasas estériles	2	Hoja de bisturí #10	1	2026-03-15
-4	Luis Rojas	Cirugía Ortopédica	Sofía Tum	S72.0	Fractura del cuello del fémur	Placa de osteosíntesis	1	Gasas estériles	6	2026-03-20
-\.
 
 
 --
@@ -5097,14 +1885,14 @@ COPY public.aspecto_quirurgico (id_aspecto, etapa, seccion, nombre, tipo_evaluac
 
 
 --
--- Data for Name: auditoria_personal; Type: TABLE DATA; Schema: public; Owner: dueno_auditoria
+-- Data for Name: auditoria_personal; Type: TABLE DATA; Schema: public; Owner: admin
 --
 
-COPY public.auditoria_personal (id_auditoria, fecha_hora, usuario_bd, usuario_sesion, usuario_aplicacion, tabla, id_registro, campo, valor_anterior, valor_nuevo) FROM stdin;
-1	2026-10-20 18:13:17.681033-06	admin	hospital	rrhh.lperez	personal	1001	salario	13000.00	14500.00
-2	2026-10-20 18:13:17.684541-06	admin	hospital	rrhh.lperez	medico	1015	id_especialidad	309 - Odontología General	307 - Medicina General
-3	2026-10-20 18:13:17.685358-06	admin	hospital	direccion.hgo	personal	1004	salario	18500.00	22000.00
-4	2026-10-20 18:13:17.685423-06	admin	hospital	direccion.hgo	personal	1004	nivel_acceso	operativo	supervisor
+COPY public.auditoria_personal (id_auditoria, fecha_hora, usuario, tabla, id_registro, campo, valor_anterior, valor_nuevo) FROM stdin;
+1	2026-11-09 16:43:41.546779-06	admin	personal	1001	salario	13000.00	14500.00
+2	2026-11-09 16:43:41.554419-06	admin	medico	1015	id_especialidad	309	307
+3	2026-11-09 16:43:41.556174-06	admin	personal	1004	salario	18500.00	22000.00
+4	2026-11-09 16:43:41.556174-06	admin	personal	1004	nivel_acceso	operativo	supervisor
 \.
 
 
@@ -5748,232 +2536,289 @@ COPY public.cirugia_personal (id_cirugia_personal, id_cirugia, id_medico, id_enf
 -- Data for Name: cita; Type: TABLE DATA; Schema: public; Owner: admin
 --
 
-COPY public.cita (id_cita, id_paciente, id_medico, fecha_hora, numero_clinica, medio_asignacion, estado, es_reconsulta, es_referido, cancelada_sin_aviso, costo_base, costo_final) FROM stdin;
-1	1	1002	2026-08-10 09:00:00-06	A-101	telefonico	realizada	t	f	f	220.00	165.00
-2	2	1003	2026-08-12 10:30:00-06	A-205	recepcion_general	reprogramada	f	f	f	160.00	160.00
-3	4	1004	2026-08-15 08:30:00-06	B-110	telefonico	cancelada	f	f	t	180.00	198.00
-4	6	1002	2026-09-20 09:30:00-06	A-101	correo_institucional	programada	f	t	f	220.00	176.00
-5	5	1005	2026-08-11 09:15:00-06	A-108	recepcion_medico	realizada	f	f	f	180.00	180.00
-101	8	1010	2026-01-18 08:30:00-06	C-110	correo_institucional	realizada	f	f	f	180.00	180.00
-102	15	1015	2026-01-31 09:00:00-06	C-115	recepcion_general	realizada	f	f	f	130.00	130.00
-103	22	1031	2026-02-13 09:30:00-06	C-131	recepcion_medico	realizada	t	f	f	170.00	127.50
-104	29	1037	2026-02-26 10:00:00-06	C-137	telefonico	realizada	f	f	f	150.00	150.00
-105	36	1043	2026-03-11 08:00:00-06	C-143	correo_institucional	reprogramada	f	f	f	215.00	215.00
-106	43	1051	2026-03-24 09:30:00-06	C-151	recepcion_general	realizada	t	f	f	160.00	120.00
-107	50	1005	2026-04-06 09:00:00-06	C-105	recepcion_medico	realizada	f	t	f	180.00	144.00
-108	57	1014	2026-04-19 09:30:00-06	C-114	telefonico	realizada	f	f	f	150.00	150.00
-109	64	1019	2026-05-02 10:00:00-06	C-119	correo_institucional	realizada	t	f	f	190.00	142.50
-110	4	1036	2026-05-15 08:00:00-06	C-136	recepcion_general	cancelada	f	f	f	165.00	165.00
-111	11	1042	2026-05-28 08:30:00-06	C-142	recepcion_medico	realizada	f	f	f	150.00	150.00
-112	18	1049	2026-06-10 09:00:00-06	C-149	telefonico	realizada	t	f	f	200.00	150.00
-113	25	1004	2026-06-23 09:30:00-06	C-104	correo_institucional	realizada	f	f	f	180.00	180.00
-114	32	1013	2026-07-06 11:00:00-06	C-113	recepcion_general	realizada	f	t	f	175.00	140.00
-115	39	1018	2026-07-19 08:00:00-06	C-118	recepcion_medico	reprogramada	t	f	f	140.00	105.00
-116	46	1034	2026-08-01 08:30:00-06	C-134	telefonico	realizada	f	f	f	190.00	190.00
-117	53	1041	2026-08-14 09:00:00-06	C-141	correo_institucional	realizada	f	f	f	160.00	160.00
-118	60	1048	2026-08-27 09:30:00-06	C-148	recepcion_general	realizada	t	f	f	145.00	108.75
-119	67	1003	2026-09-09 11:00:00-06	C-103	recepcion_medico	realizada	f	f	f	160.00	160.00
-120	7	1012	2026-09-22 08:00:00-06	C-112	telefonico	cancelada	f	f	t	195.00	195.00
-121	14	1017	2026-10-05 09:30:00-06	C-117	correo_institucional	realizada	t	f	f	165.00	123.75
-122	21	1033	2026-10-18 09:00:00-06	C-133	recepcion_general	realizada	f	f	f	230.00	230.00
-123	28	1039	2026-01-14 10:30:00-06	C-139	recepcion_medico	realizada	f	f	f	175.00	175.00
-124	35	1047	2026-01-27 10:00:00-06	C-147	telefonico	realizada	t	f	f	150.00	112.50
-125	42	1002	2026-02-09 08:00:00-06	C-102	correo_institucional	reprogramada	f	f	f	220.00	220.00
-126	49	1011	2026-02-22 09:30:00-06	C-111	recepcion_general	realizada	f	f	f	210.00	210.00
-127	56	1016	2026-03-07 09:00:00-06	C-116	recepcion_medico	realizada	t	f	f	185.00	138.75
-128	63	1032	2026-03-20 09:30:00-06	C-132	telefonico	realizada	f	t	f	160.00	128.00
-129	3	1038	2026-04-02 10:00:00-06	C-138	correo_institucional	realizada	f	f	f	210.00	210.00
-130	10	1044	2026-04-15 09:00:00-06	C-144	recepcion_general	cancelada	t	f	f	205.00	153.75
-131	17	1001	2026-04-28 08:30:00-06	C-101	recepcion_medico	realizada	f	f	f	200.00	200.00
-132	24	1010	2026-05-11 09:00:00-06	C-110	telefonico	realizada	f	f	f	180.00	180.00
-133	31	1015	2026-05-24 09:30:00-06	C-115	correo_institucional	realizada	t	f	f	130.00	97.50
-134	38	1031	2026-06-06 10:00:00-06	C-131	recepcion_general	realizada	f	f	f	170.00	170.00
-135	45	1037	2026-06-19 08:00:00-06	C-137	recepcion_medico	reprogramada	f	t	f	150.00	120.00
-136	52	1043	2026-07-02 08:30:00-06	C-143	telefonico	realizada	t	f	f	215.00	161.25
-137	59	1051	2026-07-15 10:00:00-06	C-151	correo_institucional	realizada	f	f	f	160.00	160.00
-138	66	1005	2026-07-28 09:30:00-06	C-105	recepcion_general	realizada	f	f	f	180.00	180.00
-139	6	1014	2026-08-10 10:00:00-06	C-114	recepcion_medico	realizada	t	f	f	150.00	112.50
-140	13	1019	2026-08-23 08:00:00-06	C-119	telefonico	cancelada	f	f	t	190.00	190.00
-141	20	1036	2026-09-05 08:30:00-06	C-136	correo_institucional	realizada	f	f	f	165.00	165.00
-142	27	1042	2026-09-18 09:00:00-06	C-142	recepcion_general	realizada	t	f	f	150.00	112.50
-143	34	1049	2026-10-01 09:30:00-06	C-149	recepcion_medico	realizada	f	f	f	200.00	200.00
-144	41	1004	2026-10-14 10:00:00-06	C-104	telefonico	realizada	f	f	f	180.00	180.00
-145	48	1013	2026-01-10 09:00:00-06	C-113	correo_institucional	reprogramada	t	f	f	175.00	131.25
-146	55	1018	2026-01-23 08:30:00-06	C-118	recepcion_general	realizada	f	f	f	140.00	140.00
-147	62	1034	2026-02-05 09:00:00-06	C-134	recepcion_medico	realizada	f	f	f	190.00	190.00
-148	2	1041	2026-02-18 09:30:00-06	C-141	telefonico	realizada	t	f	f	160.00	120.00
-149	9	1048	2026-03-03 10:00:00-06	C-148	correo_institucional	realizada	f	t	f	145.00	116.00
-150	16	1003	2026-03-16 09:00:00-06	C-103	recepcion_general	cancelada	f	f	f	160.00	160.00
-151	23	1012	2026-03-29 08:30:00-06	C-112	recepcion_medico	realizada	t	f	f	195.00	146.25
-152	30	1017	2026-04-11 10:00:00-06	C-117	telefonico	realizada	f	f	f	165.00	165.00
-153	37	1033	2026-04-24 09:30:00-06	C-133	correo_institucional	realizada	f	f	f	230.00	230.00
-154	44	1039	2026-05-07 11:00:00-06	C-139	recepcion_general	realizada	t	f	f	175.00	131.25
-155	51	1047	2026-05-20 08:00:00-06	C-147	recepcion_medico	reprogramada	f	f	f	150.00	150.00
-156	58	1002	2026-06-02 08:30:00-06	C-102	telefonico	realizada	f	t	f	220.00	176.00
-157	65	1011	2026-06-15 10:00:00-06	C-111	correo_institucional	realizada	t	f	f	210.00	157.50
-158	5	1016	2026-06-28 09:30:00-06	C-116	recepcion_general	realizada	f	f	f	185.00	185.00
-159	12	1032	2026-07-11 10:00:00-06	C-132	recepcion_medico	realizada	f	f	f	160.00	160.00
-160	19	1038	2026-07-24 08:00:00-06	C-138	telefonico	cancelada	t	f	t	210.00	157.50
-161	26	1044	2026-08-06 09:30:00-06	C-144	correo_institucional	realizada	f	f	f	205.00	205.00
-162	33	1001	2026-08-19 09:00:00-06	C-101	recepcion_general	realizada	f	f	f	200.00	200.00
-163	40	1010	2026-09-01 09:30:00-06	C-110	recepcion_medico	realizada	t	f	f	180.00	135.00
-164	47	1015	2026-09-14 10:00:00-06	C-115	telefonico	realizada	f	f	f	130.00	130.00
-165	54	1031	2026-09-27 08:00:00-06	C-131	correo_institucional	reprogramada	f	f	f	170.00	170.00
-166	61	1037	2026-10-10 08:30:00-06	C-137	recepcion_general	realizada	t	f	f	150.00	112.50
-167	1	1043	2026-01-06 09:00:00-06	C-143	recepcion_medico	realizada	f	f	f	215.00	215.00
-168	8	1051	2026-01-19 10:30:00-06	C-151	telefonico	realizada	f	f	f	160.00	160.00
-169	15	1005	2026-02-01 10:00:00-06	C-105	correo_institucional	realizada	t	f	f	180.00	135.00
-170	22	1014	2026-02-14 08:00:00-06	C-114	recepcion_general	cancelada	f	t	f	150.00	120.00
-171	29	1019	2026-02-27 08:30:00-06	C-119	recepcion_medico	realizada	f	f	f	190.00	190.00
-172	36	1036	2026-03-12 09:00:00-06	C-136	telefonico	realizada	t	f	f	165.00	123.75
-173	43	1042	2026-03-25 09:30:00-06	C-142	correo_institucional	realizada	f	f	f	150.00	150.00
-174	50	1049	2026-04-07 10:00:00-06	C-149	recepcion_general	realizada	f	f	f	200.00	200.00
-175	57	1004	2026-04-20 08:00:00-06	C-104	recepcion_medico	reprogramada	t	f	f	180.00	135.00
-176	64	1013	2026-05-03 09:30:00-06	C-113	telefonico	realizada	f	f	f	175.00	175.00
-177	4	1018	2026-05-16 09:00:00-06	C-118	correo_institucional	realizada	f	t	f	140.00	112.00
-178	11	1034	2026-05-29 09:30:00-06	C-134	recepcion_general	realizada	t	f	f	190.00	142.50
-179	18	1041	2026-06-11 10:00:00-06	C-141	recepcion_medico	realizada	f	f	f	160.00	160.00
-180	25	1048	2026-06-24 08:00:00-06	C-148	telefonico	cancelada	f	f	t	145.00	145.00
-181	32	1003	2026-07-07 09:30:00-06	C-103	correo_institucional	realizada	t	f	f	160.00	120.00
-182	39	1012	2026-07-20 09:00:00-06	C-112	recepcion_general	realizada	f	f	f	195.00	195.00
-183	46	1017	2026-08-02 10:30:00-06	C-117	recepcion_medico	realizada	f	f	f	165.00	165.00
-184	53	1033	2026-08-15 10:00:00-06	C-133	telefonico	realizada	t	f	f	230.00	172.50
-185	60	1039	2026-08-28 09:00:00-06	C-139	correo_institucional	reprogramada	f	f	f	175.00	175.00
-186	67	1047	2026-09-10 08:30:00-06	C-147	recepcion_general	realizada	f	f	f	150.00	150.00
-187	7	1002	2026-09-23 09:00:00-06	C-102	recepcion_medico	realizada	t	f	f	220.00	165.00
-188	14	1011	2026-10-06 10:30:00-06	C-111	telefonico	realizada	f	f	f	210.00	210.00
-189	21	1016	2026-10-19 10:00:00-06	C-116	correo_institucional	realizada	f	f	f	185.00	185.00
-190	28	1032	2026-01-15 08:00:00-06	C-132	recepcion_general	cancelada	t	f	f	160.00	120.00
-191	35	1038	2026-01-28 08:30:00-06	C-138	recepcion_medico	realizada	f	t	f	210.00	168.00
-192	42	1044	2026-02-10 10:00:00-06	C-144	telefonico	realizada	f	f	f	205.00	205.00
-193	49	1001	2026-02-23 09:30:00-06	C-101	correo_institucional	realizada	t	f	f	200.00	150.00
-194	56	1010	2026-03-08 10:00:00-06	C-110	recepcion_general	realizada	f	f	f	180.00	180.00
-195	63	1015	2026-03-21 08:00:00-06	C-115	recepcion_medico	reprogramada	f	f	f	130.00	130.00
-196	3	1031	2026-04-03 08:30:00-06	C-131	telefonico	realizada	t	f	f	170.00	127.50
-197	10	1037	2026-04-16 09:00:00-06	C-137	correo_institucional	realizada	f	f	f	150.00	150.00
-198	17	1043	2026-04-29 09:30:00-06	C-143	recepcion_general	realizada	f	t	f	215.00	172.00
-199	24	1051	2026-05-12 11:00:00-06	C-151	recepcion_medico	realizada	t	f	f	160.00	120.00
-200	31	1005	2026-05-25 08:00:00-06	C-105	telefonico	cancelada	f	f	t	180.00	180.00
-201	38	1014	2026-06-07 08:30:00-06	C-114	correo_institucional	realizada	f	f	f	150.00	150.00
-202	45	1019	2026-06-20 09:00:00-06	C-119	recepcion_general	realizada	t	f	f	190.00	142.50
-203	52	1036	2026-07-03 09:30:00-06	C-136	recepcion_medico	realizada	f	f	f	165.00	165.00
-204	59	1042	2026-07-16 10:00:00-06	C-142	telefonico	realizada	f	f	f	150.00	150.00
-205	66	1049	2026-07-29 08:00:00-06	C-149	correo_institucional	reprogramada	t	f	f	200.00	150.00
-206	6	1004	2026-08-11 08:30:00-06	C-104	recepcion_general	realizada	f	f	f	180.00	180.00
-207	13	1013	2026-08-24 10:00:00-06	C-113	recepcion_medico	realizada	f	f	f	175.00	175.00
-208	20	1018	2026-09-06 09:30:00-06	C-118	telefonico	realizada	t	f	f	140.00	105.00
-209	27	1034	2026-09-19 10:00:00-06	C-134	correo_institucional	realizada	f	f	f	190.00	190.00
-210	34	1041	2026-10-02 08:00:00-06	C-141	recepcion_general	cancelada	f	f	f	160.00	160.00
-211	41	1048	2026-10-15 08:30:00-06	C-148	recepcion_medico	realizada	t	f	f	145.00	108.75
-212	48	1003	2026-01-11 10:00:00-06	C-103	telefonico	realizada	f	t	f	160.00	128.00
-213	55	1012	2026-01-24 09:30:00-06	C-112	correo_institucional	realizada	f	f	f	195.00	195.00
-214	62	1017	2026-02-06 11:00:00-06	C-117	recepcion_general	realizada	t	f	f	165.00	123.75
-215	2	1033	2026-02-19 08:00:00-06	C-133	recepcion_medico	reprogramada	f	f	f	230.00	230.00
-216	9	1039	2026-03-04 09:30:00-06	C-139	telefonico	realizada	f	f	f	175.00	175.00
-217	16	1047	2026-03-17 09:00:00-06	C-147	correo_institucional	realizada	t	f	f	150.00	112.50
-218	23	1002	2026-03-30 09:30:00-06	C-102	recepcion_general	realizada	f	f	f	220.00	220.00
-219	30	1011	2026-04-12 11:00:00-06	C-111	recepcion_medico	realizada	f	t	f	210.00	168.00
-220	37	1016	2026-04-25 08:00:00-06	C-116	telefonico	cancelada	t	f	t	185.00	138.75
-221	44	1032	2026-05-08 08:30:00-06	C-132	correo_institucional	realizada	f	f	f	160.00	160.00
-222	51	1038	2026-05-21 09:00:00-06	C-138	recepcion_general	realizada	f	f	f	210.00	210.00
-223	58	1044	2026-06-03 10:30:00-06	C-144	recepcion_medico	realizada	t	f	f	205.00	153.75
-224	65	1001	2026-06-16 10:00:00-06	C-101	telefonico	realizada	f	f	f	200.00	200.00
-225	5	1010	2026-06-29 08:00:00-06	C-110	correo_institucional	reprogramada	f	f	f	180.00	180.00
-226	12	1015	2026-07-12 08:30:00-06	C-115	recepcion_general	realizada	t	f	f	130.00	97.50
-227	19	1031	2026-07-25 09:00:00-06	C-131	recepcion_medico	realizada	f	f	f	170.00	170.00
-228	26	1037	2026-08-07 09:30:00-06	C-137	telefonico	realizada	f	f	f	150.00	150.00
-229	33	1043	2026-08-20 10:00:00-06	C-143	correo_institucional	realizada	t	f	f	215.00	161.25
-230	40	1051	2026-09-02 09:00:00-06	C-151	recepcion_general	cancelada	f	f	f	160.00	160.00
-231	47	1005	2026-09-15 08:30:00-06	C-105	recepcion_medico	realizada	f	f	f	180.00	180.00
-232	54	1014	2026-09-28 09:00:00-06	C-114	telefonico	realizada	t	f	f	150.00	112.50
-233	61	1019	2026-10-11 09:30:00-06	C-119	correo_institucional	realizada	f	t	f	190.00	152.00
-234	1	1036	2026-01-07 10:00:00-06	C-136	recepcion_general	realizada	f	f	f	165.00	165.00
-235	8	1042	2026-01-20 08:00:00-06	C-142	recepcion_medico	reprogramada	t	f	f	150.00	112.50
-236	15	1049	2026-02-02 08:30:00-06	C-149	telefonico	realizada	f	f	f	200.00	200.00
-237	22	1004	2026-02-15 09:00:00-06	C-104	correo_institucional	realizada	f	f	f	180.00	180.00
-238	29	1013	2026-02-28 10:30:00-06	C-113	recepcion_general	realizada	t	f	f	175.00	131.25
-239	36	1018	2026-03-13 10:00:00-06	C-118	recepcion_medico	realizada	f	f	f	140.00	140.00
-240	43	1034	2026-03-26 08:00:00-06	C-134	telefonico	cancelada	f	t	t	190.00	152.00
-241	50	1041	2026-04-08 08:30:00-06	C-141	correo_institucional	realizada	t	f	f	160.00	120.00
-242	57	1048	2026-04-21 09:00:00-06	C-148	recepcion_general	realizada	f	f	f	145.00	145.00
-243	64	1003	2026-05-04 10:30:00-06	C-103	recepcion_medico	realizada	f	f	f	160.00	160.00
-244	4	1012	2026-05-17 10:00:00-06	C-112	telefonico	realizada	t	f	f	195.00	146.25
-245	11	1017	2026-05-30 09:00:00-06	C-117	correo_institucional	reprogramada	f	f	f	165.00	165.00
-246	18	1033	2026-06-12 08:30:00-06	C-133	recepcion_general	realizada	f	f	f	230.00	230.00
-247	25	1039	2026-06-25 10:00:00-06	C-139	recepcion_medico	realizada	t	f	f	175.00	131.25
-248	32	1047	2026-07-08 09:30:00-06	C-147	telefonico	realizada	f	f	f	150.00	150.00
-249	39	1002	2026-07-21 10:00:00-06	C-102	correo_institucional	realizada	f	f	f	220.00	220.00
-250	46	1011	2026-08-03 09:00:00-06	C-111	recepcion_general	cancelada	t	f	f	210.00	157.50
-251	53	1016	2026-08-16 08:30:00-06	C-116	recepcion_medico	realizada	f	f	f	185.00	185.00
-252	60	1032	2026-08-29 09:00:00-06	C-132	telefonico	realizada	f	f	f	160.00	160.00
-253	67	1038	2026-09-11 09:30:00-06	C-138	correo_institucional	realizada	t	f	f	210.00	157.50
-254	7	1044	2026-09-24 11:00:00-06	C-144	recepcion_general	realizada	f	t	f	205.00	164.00
-255	14	1001	2026-10-07 08:00:00-06	C-101	recepcion_medico	reprogramada	f	f	f	200.00	200.00
-256	21	1010	2026-10-20 08:30:00-06	C-110	telefonico	realizada	t	f	f	180.00	135.00
-257	28	1015	2026-01-16 09:00:00-06	C-115	correo_institucional	realizada	f	f	f	130.00	130.00
-258	35	1031	2026-01-29 09:30:00-06	C-131	recepcion_general	realizada	f	f	f	170.00	170.00
-259	42	1037	2026-02-11 10:00:00-06	C-137	recepcion_medico	realizada	t	f	f	150.00	112.50
-260	49	1043	2026-02-24 08:00:00-06	C-143	telefonico	cancelada	f	f	t	215.00	215.00
-261	56	1051	2026-03-09 09:30:00-06	C-151	correo_institucional	realizada	f	t	f	160.00	128.00
-262	63	1005	2026-03-22 09:00:00-06	C-105	recepcion_general	realizada	t	f	f	180.00	135.00
-263	3	1014	2026-04-04 09:30:00-06	C-114	recepcion_medico	realizada	f	f	f	150.00	150.00
-264	10	1019	2026-04-17 10:00:00-06	C-119	telefonico	realizada	f	f	f	190.00	190.00
-265	17	1036	2026-04-30 08:00:00-06	C-136	correo_institucional	reprogramada	t	f	f	165.00	123.75
-266	24	1042	2026-05-13 08:30:00-06	C-142	recepcion_general	realizada	f	f	f	150.00	150.00
-267	31	1049	2026-05-26 09:00:00-06	C-149	recepcion_medico	realizada	f	f	f	200.00	200.00
-268	38	1004	2026-06-08 09:30:00-06	C-104	telefonico	realizada	t	f	f	180.00	135.00
-269	45	1013	2026-06-21 11:00:00-06	C-113	correo_institucional	realizada	f	f	f	175.00	175.00
-270	52	1018	2026-07-04 08:00:00-06	C-118	recepcion_general	cancelada	f	f	f	140.00	140.00
-271	59	1034	2026-07-17 08:30:00-06	C-134	recepcion_medico	realizada	t	f	f	190.00	142.50
-272	66	1041	2026-07-30 09:00:00-06	C-141	telefonico	realizada	f	f	f	160.00	160.00
-273	6	1048	2026-08-12 09:30:00-06	C-148	correo_institucional	realizada	f	f	f	145.00	145.00
-274	13	1003	2026-08-25 11:00:00-06	C-103	recepcion_general	realizada	t	f	f	160.00	120.00
-275	20	1012	2026-09-07 08:00:00-06	C-112	recepcion_medico	reprogramada	f	t	f	195.00	156.00
-276	27	1017	2026-09-20 09:30:00-06	C-117	telefonico	realizada	f	f	f	165.00	165.00
-277	34	1033	2026-10-03 09:00:00-06	C-133	correo_institucional	realizada	t	f	f	230.00	172.50
-278	41	1039	2026-10-16 10:30:00-06	C-139	recepcion_general	realizada	f	f	f	175.00	175.00
-279	48	1047	2026-01-12 10:00:00-06	C-147	recepcion_medico	realizada	f	f	f	150.00	150.00
-280	55	1002	2026-01-25 08:00:00-06	C-102	telefonico	cancelada	t	f	t	220.00	165.00
-281	62	1011	2026-02-07 09:30:00-06	C-111	correo_institucional	realizada	f	f	f	210.00	210.00
-282	2	1016	2026-02-20 09:00:00-06	C-116	recepcion_general	realizada	f	t	f	185.00	148.00
-283	9	1032	2026-03-05 09:30:00-06	C-132	recepcion_medico	realizada	t	f	f	160.00	120.00
-284	16	1038	2026-03-18 10:00:00-06	C-138	telefonico	realizada	f	f	f	210.00	210.00
-285	23	1044	2026-03-31 09:00:00-06	C-144	correo_institucional	reprogramada	f	f	f	205.00	205.00
-286	30	1001	2026-04-13 08:30:00-06	C-101	recepcion_general	realizada	t	f	f	200.00	150.00
-287	37	1010	2026-04-26 09:00:00-06	C-110	recepcion_medico	realizada	f	f	f	180.00	180.00
-288	44	1015	2026-05-09 09:30:00-06	C-115	telefonico	realizada	f	f	f	130.00	130.00
-289	51	1031	2026-05-22 10:00:00-06	C-131	correo_institucional	realizada	t	f	f	170.00	127.50
-290	58	1037	2026-06-04 08:00:00-06	C-137	recepcion_general	cancelada	f	f	f	150.00	150.00
-291	65	1043	2026-06-17 08:30:00-06	C-143	recepcion_medico	realizada	f	f	f	215.00	215.00
-292	5	1051	2026-06-30 10:00:00-06	C-151	telefonico	realizada	t	f	f	160.00	120.00
-293	12	1005	2026-07-13 09:30:00-06	C-105	correo_institucional	realizada	f	f	f	180.00	180.00
-294	19	1014	2026-07-26 10:00:00-06	C-114	recepcion_general	realizada	f	f	f	150.00	150.00
-295	26	1019	2026-08-08 08:00:00-06	C-119	recepcion_medico	reprogramada	t	f	f	190.00	142.50
-296	33	1036	2026-08-21 08:30:00-06	C-136	telefonico	realizada	f	t	f	165.00	132.00
-297	40	1042	2026-09-03 09:00:00-06	C-142	correo_institucional	realizada	f	f	f	150.00	150.00
-298	47	1049	2026-09-16 09:30:00-06	C-149	recepcion_general	realizada	t	f	f	200.00	150.00
-299	54	1004	2026-09-29 10:00:00-06	C-104	recepcion_medico	realizada	f	f	f	180.00	180.00
-300	61	1013	2026-10-12 09:00:00-06	C-113	telefonico	cancelada	f	f	t	175.00	175.00
-301	1	1018	2026-01-08 08:30:00-06	C-118	correo_institucional	realizada	t	f	f	140.00	105.00
-302	8	1034	2026-01-21 09:00:00-06	C-134	recepcion_general	realizada	f	f	f	190.00	190.00
-303	15	1041	2026-02-03 09:30:00-06	C-141	recepcion_medico	realizada	f	t	f	160.00	128.00
-304	22	1048	2026-02-16 10:00:00-06	C-148	telefonico	realizada	t	f	f	145.00	108.75
-305	29	1003	2026-03-01 09:00:00-06	C-103	correo_institucional	reprogramada	f	f	f	160.00	160.00
-306	36	1012	2026-03-14 08:30:00-06	C-112	recepcion_general	realizada	f	f	f	195.00	195.00
-307	43	1017	2026-03-27 10:00:00-06	C-117	recepcion_medico	realizada	t	f	f	165.00	123.75
-308	50	1033	2026-04-09 09:30:00-06	C-133	telefonico	realizada	f	f	f	230.00	230.00
-309	57	1039	2026-04-22 11:00:00-06	C-139	correo_institucional	realizada	f	f	f	175.00	175.00
-310	64	1047	2026-05-05 08:00:00-06	C-147	recepcion_general	cancelada	t	f	f	150.00	112.50
-311	4	1002	2026-05-18 08:30:00-06	C-102	recepcion_medico	realizada	f	f	f	220.00	220.00
-312	11	1011	2026-05-31 10:00:00-06	C-111	telefonico	realizada	f	f	f	210.00	210.00
-313	18	1016	2026-06-13 09:30:00-06	C-116	correo_institucional	realizada	t	f	f	185.00	138.75
-314	25	1032	2026-06-26 10:00:00-06	C-132	recepcion_general	realizada	f	f	f	160.00	160.00
-315	32	1038	2026-07-09 08:00:00-06	C-138	recepcion_medico	reprogramada	f	f	f	210.00	210.00
-316	39	1044	2026-07-22 09:30:00-06	C-144	telefonico	realizada	t	f	f	205.00	153.75
-317	46	1001	2026-08-04 09:00:00-06	C-101	correo_institucional	realizada	f	t	f	200.00	160.00
-318	53	1010	2026-08-17 09:30:00-06	C-110	recepcion_general	realizada	f	f	f	180.00	180.00
-319	60	1015	2026-08-30 10:00:00-06	C-115	recepcion_medico	realizada	t	f	f	130.00	97.50
-320	67	1031	2026-09-12 08:00:00-06	C-131	telefonico	cancelada	f	f	t	170.00	170.00
+COPY public.cita (id_cita, id_paciente, id_medico, fecha_hora, numero_clinica, medio_asignacion, estado, es_reconsulta, es_referido, cancelada_sin_aviso, costo_base, costo_final, id_clinica) FROM stdin;
+131	17	1001	2026-04-28 08:30:00-06	C-101	recepcion_medico	realizada	f	f	f	200.00	200.00	5
+162	33	1001	2026-08-19 09:00:00-06	C-101	recepcion_general	realizada	f	f	f	200.00	200.00	5
+193	49	1001	2026-02-23 09:30:00-06	C-101	correo_institucional	realizada	t	f	f	200.00	150.00	5
+224	65	1001	2026-06-16 10:00:00-06	C-101	telefonico	realizada	f	f	f	200.00	200.00	5
+255	14	1001	2026-10-07 08:00:00-06	C-101	recepcion_medico	reprogramada	f	f	f	200.00	200.00	5
+286	30	1001	2026-04-13 08:30:00-06	C-101	recepcion_general	realizada	t	f	f	200.00	150.00	5
+317	46	1001	2026-08-04 09:00:00-06	C-101	correo_institucional	realizada	f	t	f	200.00	160.00	5
+102	15	1015	2026-01-31 09:00:00-06	C-115	recepcion_general	realizada	f	f	f	130.00	130.00	13
+133	31	1015	2026-05-24 09:30:00-06	C-115	correo_institucional	realizada	t	f	f	130.00	97.50	13
+164	47	1015	2026-09-14 10:00:00-06	C-115	telefonico	realizada	f	f	f	130.00	130.00	13
+195	63	1015	2026-03-21 08:00:00-06	C-115	recepcion_medico	reprogramada	f	f	f	130.00	130.00	13
+226	12	1015	2026-07-12 08:30:00-06	C-115	recepcion_general	realizada	t	f	f	130.00	97.50	13
+257	28	1015	2026-01-16 09:00:00-06	C-115	correo_institucional	realizada	f	f	f	130.00	130.00	13
+288	44	1015	2026-05-09 09:30:00-06	C-115	telefonico	realizada	f	f	f	130.00	130.00	13
+319	60	1015	2026-08-30 10:00:00-06	C-115	recepcion_medico	realizada	t	f	f	130.00	97.50	13
+3	4	1004	2026-08-15 08:30:00-06	B-110	telefonico	cancelada	f	f	t	180.00	198.00	4
+113	25	1004	2026-06-23 09:30:00-06	C-104	correo_institucional	realizada	f	f	f	180.00	180.00	8
+144	41	1004	2026-10-14 10:00:00-06	C-104	telefonico	realizada	f	f	f	180.00	180.00	8
+175	57	1004	2026-04-20 08:00:00-06	C-104	recepcion_medico	reprogramada	t	f	f	180.00	135.00	8
+206	6	1004	2026-08-11 08:30:00-06	C-104	recepcion_general	realizada	f	f	f	180.00	180.00	8
+237	22	1004	2026-02-15 09:00:00-06	C-104	correo_institucional	realizada	f	f	f	180.00	180.00	8
+268	38	1004	2026-06-08 09:30:00-06	C-104	telefonico	realizada	t	f	f	180.00	135.00	8
+299	54	1004	2026-09-29 10:00:00-06	C-104	recepcion_medico	realizada	f	f	f	180.00	180.00	8
+1	1	1002	2026-08-10 09:00:00-06	A-101	telefonico	realizada	t	f	f	220.00	165.00	1
+4	6	1002	2026-09-20 09:30:00-06	A-101	correo_institucional	programada	f	t	f	220.00	176.00	1
+125	42	1002	2026-02-09 08:00:00-06	C-102	correo_institucional	reprogramada	f	f	f	220.00	220.00	6
+156	58	1002	2026-06-02 08:30:00-06	C-102	telefonico	realizada	f	t	f	220.00	176.00	6
+187	7	1002	2026-09-23 09:00:00-06	C-102	recepcion_medico	realizada	t	f	f	220.00	165.00	6
+218	23	1002	2026-03-30 09:30:00-06	C-102	recepcion_general	realizada	f	f	f	220.00	220.00	6
+249	39	1002	2026-07-21 10:00:00-06	C-102	correo_institucional	realizada	f	f	f	220.00	220.00	6
+280	55	1002	2026-01-25 08:00:00-06	C-102	telefonico	cancelada	t	f	t	220.00	165.00	6
+311	4	1002	2026-05-18 08:30:00-06	C-102	recepcion_medico	realizada	f	f	f	220.00	220.00	6
+2	2	1003	2026-08-12 10:30:00-06	A-205	recepcion_general	reprogramada	f	f	f	160.00	160.00	3
+119	67	1003	2026-09-09 11:00:00-06	C-103	recepcion_medico	realizada	f	f	f	160.00	160.00	7
+150	16	1003	2026-03-16 09:00:00-06	C-103	recepcion_general	cancelada	f	f	f	160.00	160.00	7
+181	32	1003	2026-07-07 09:30:00-06	C-103	correo_institucional	realizada	t	f	f	160.00	120.00	7
+212	48	1003	2026-01-11 10:00:00-06	C-103	telefonico	realizada	f	t	f	160.00	128.00	7
+243	64	1003	2026-05-04 10:30:00-06	C-103	recepcion_medico	realizada	f	f	f	160.00	160.00	7
+274	13	1003	2026-08-25 11:00:00-06	C-103	recepcion_general	realizada	t	f	f	160.00	120.00	7
+305	29	1003	2026-03-01 09:00:00-06	C-103	correo_institucional	reprogramada	f	f	f	160.00	160.00	7
+101	8	1010	2026-01-18 08:30:00-06	C-110	correo_institucional	realizada	f	f	f	180.00	180.00	10
+132	24	1010	2026-05-11 09:00:00-06	C-110	telefonico	realizada	f	f	f	180.00	180.00	10
+163	40	1010	2026-09-01 09:30:00-06	C-110	recepcion_medico	realizada	t	f	f	180.00	135.00	10
+194	56	1010	2026-03-08 10:00:00-06	C-110	recepcion_general	realizada	f	f	f	180.00	180.00	10
+225	5	1010	2026-06-29 08:00:00-06	C-110	correo_institucional	reprogramada	f	f	f	180.00	180.00	10
+256	21	1010	2026-10-20 08:30:00-06	C-110	telefonico	realizada	t	f	f	180.00	135.00	10
+287	37	1010	2026-04-26 09:00:00-06	C-110	recepcion_medico	realizada	f	f	f	180.00	180.00	10
+318	53	1010	2026-08-17 09:30:00-06	C-110	recepcion_general	realizada	f	f	f	180.00	180.00	10
+114	32	1013	2026-07-06 11:00:00-06	C-113	recepcion_general	realizada	f	t	f	175.00	140.00	12
+145	48	1013	2026-01-10 09:00:00-06	C-113	correo_institucional	reprogramada	t	f	f	175.00	131.25	12
+176	64	1013	2026-05-03 09:30:00-06	C-113	telefonico	realizada	f	f	f	175.00	175.00	12
+207	13	1013	2026-08-24 10:00:00-06	C-113	recepcion_medico	realizada	f	f	f	175.00	175.00	12
+238	29	1013	2026-02-28 10:30:00-06	C-113	recepcion_general	realizada	t	f	f	175.00	131.25	12
+269	45	1013	2026-06-21 11:00:00-06	C-113	correo_institucional	realizada	f	f	f	175.00	175.00	12
+300	61	1013	2026-10-12 09:00:00-06	C-113	telefonico	cancelada	f	f	t	175.00	175.00	12
+121	14	1017	2026-10-05 09:30:00-06	C-117	correo_institucional	realizada	t	f	f	165.00	123.75	14
+152	30	1017	2026-04-11 10:00:00-06	C-117	telefonico	realizada	f	f	f	165.00	165.00	14
+183	46	1017	2026-08-02 10:30:00-06	C-117	recepcion_medico	realizada	f	f	f	165.00	165.00	14
+214	62	1017	2026-02-06 11:00:00-06	C-117	recepcion_general	realizada	t	f	f	165.00	123.75	14
+245	11	1017	2026-05-30 09:00:00-06	C-117	correo_institucional	reprogramada	f	f	f	165.00	165.00	14
+276	27	1017	2026-09-20 09:30:00-06	C-117	telefonico	realizada	f	f	f	165.00	165.00	14
+307	43	1017	2026-03-27 10:00:00-06	C-117	recepcion_medico	realizada	t	f	f	165.00	123.75	14
+115	39	1018	2026-07-19 08:00:00-06	C-118	recepcion_medico	reprogramada	t	f	f	140.00	105.00	15
+146	55	1018	2026-01-23 08:30:00-06	C-118	recepcion_general	realizada	f	f	f	140.00	140.00	15
+177	4	1018	2026-05-16 09:00:00-06	C-118	correo_institucional	realizada	f	t	f	140.00	112.00	15
+208	20	1018	2026-09-06 09:30:00-06	C-118	telefonico	realizada	t	f	f	140.00	105.00	15
+239	36	1018	2026-03-13 10:00:00-06	C-118	recepcion_medico	realizada	f	f	f	140.00	140.00	15
+270	52	1018	2026-07-04 08:00:00-06	C-118	recepcion_general	cancelada	f	f	f	140.00	140.00	15
+301	1	1018	2026-01-08 08:30:00-06	C-118	correo_institucional	realizada	t	f	f	140.00	105.00	15
+128	63	1032	2026-03-20 09:30:00-06	C-132	telefonico	realizada	f	t	f	160.00	128.00	20
+159	12	1032	2026-07-11 10:00:00-06	C-132	recepcion_medico	realizada	f	f	f	160.00	160.00	20
+190	28	1032	2026-01-15 08:00:00-06	C-132	recepcion_general	cancelada	t	f	f	160.00	120.00	20
+221	44	1032	2026-05-08 08:30:00-06	C-132	correo_institucional	realizada	f	f	f	160.00	160.00	20
+252	60	1032	2026-08-29 09:00:00-06	C-132	telefonico	realizada	f	f	f	160.00	160.00	20
+283	9	1032	2026-03-05 09:30:00-06	C-132	recepcion_medico	realizada	t	f	f	160.00	120.00	20
+314	25	1032	2026-06-26 10:00:00-06	C-132	recepcion_general	realizada	f	f	f	160.00	160.00	20
+108	57	1014	2026-04-19 09:30:00-06	C-114	telefonico	realizada	f	f	f	150.00	150.00	17
+139	6	1014	2026-08-10 10:00:00-06	C-114	recepcion_medico	realizada	t	f	f	150.00	112.50	17
+170	22	1014	2026-02-14 08:00:00-06	C-114	recepcion_general	cancelada	f	t	f	150.00	120.00	17
+201	38	1014	2026-06-07 08:30:00-06	C-114	correo_institucional	realizada	f	f	f	150.00	150.00	17
+232	54	1014	2026-09-28 09:00:00-06	C-114	telefonico	realizada	t	f	f	150.00	112.50	17
+263	3	1014	2026-04-04 09:30:00-06	C-114	recepcion_medico	realizada	f	f	f	150.00	150.00	17
+294	19	1014	2026-07-26 10:00:00-06	C-114	recepcion_general	realizada	f	f	f	150.00	150.00	17
+109	64	1019	2026-05-02 10:00:00-06	C-119	correo_institucional	realizada	t	f	f	190.00	142.50	18
+140	13	1019	2026-08-23 08:00:00-06	C-119	telefonico	cancelada	f	f	t	190.00	190.00	18
+171	29	1019	2026-02-27 08:30:00-06	C-119	recepcion_medico	realizada	f	f	f	190.00	190.00	18
+202	45	1019	2026-06-20 09:00:00-06	C-119	recepcion_general	realizada	t	f	f	190.00	142.50	18
+233	61	1019	2026-10-11 09:30:00-06	C-119	correo_institucional	realizada	f	t	f	190.00	152.00	18
+264	10	1019	2026-04-17 10:00:00-06	C-119	telefonico	realizada	f	f	f	190.00	190.00	18
+295	26	1019	2026-08-08 08:00:00-06	C-119	recepcion_medico	reprogramada	t	f	f	190.00	142.50	18
+116	46	1034	2026-08-01 08:30:00-06	C-134	telefonico	realizada	f	f	f	190.00	190.00	22
+147	62	1034	2026-02-05 09:00:00-06	C-134	recepcion_medico	realizada	f	f	f	190.00	190.00	22
+178	11	1034	2026-05-29 09:30:00-06	C-134	recepcion_general	realizada	t	f	f	190.00	142.50	22
+209	27	1034	2026-09-19 10:00:00-06	C-134	correo_institucional	realizada	f	f	f	190.00	190.00	22
+240	43	1034	2026-03-26 08:00:00-06	C-134	telefonico	cancelada	f	t	t	190.00	152.00	22
+271	59	1034	2026-07-17 08:30:00-06	C-134	recepcion_medico	realizada	t	f	f	190.00	142.50	22
+302	8	1034	2026-01-21 09:00:00-06	C-134	recepcion_general	realizada	f	f	f	190.00	190.00	22
+104	29	1037	2026-02-26 10:00:00-06	C-137	telefonico	realizada	f	f	f	150.00	150.00	25
+135	45	1037	2026-06-19 08:00:00-06	C-137	recepcion_medico	reprogramada	f	t	f	150.00	120.00	25
+166	61	1037	2026-10-10 08:30:00-06	C-137	recepcion_general	realizada	t	f	f	150.00	112.50	25
+197	10	1037	2026-04-16 09:00:00-06	C-137	correo_institucional	realizada	f	f	f	150.00	150.00	25
+228	26	1037	2026-08-07 09:30:00-06	C-137	telefonico	realizada	f	f	f	150.00	150.00	25
+259	42	1037	2026-02-11 10:00:00-06	C-137	recepcion_medico	realizada	t	f	f	150.00	112.50	25
+290	58	1037	2026-06-04 08:00:00-06	C-137	recepcion_general	cancelada	f	f	f	150.00	150.00	25
+127	56	1016	2026-03-07 09:00:00-06	C-116	recepcion_medico	realizada	t	f	f	185.00	138.75	23
+158	5	1016	2026-06-28 09:30:00-06	C-116	recepcion_general	realizada	f	f	f	185.00	185.00	23
+189	21	1016	2026-10-19 10:00:00-06	C-116	correo_institucional	realizada	f	f	f	185.00	185.00	23
+220	37	1016	2026-04-25 08:00:00-06	C-116	telefonico	cancelada	t	f	t	185.00	138.75	23
+251	53	1016	2026-08-16 08:30:00-06	C-116	recepcion_medico	realizada	f	f	f	185.00	185.00	23
+282	2	1016	2026-02-20 09:00:00-06	C-116	recepcion_general	realizada	f	t	f	185.00	148.00	23
+313	18	1016	2026-06-13 09:30:00-06	C-116	correo_institucional	realizada	t	f	f	185.00	138.75	23
+123	28	1039	2026-01-14 10:30:00-06	C-139	recepcion_medico	realizada	f	f	f	175.00	175.00	27
+154	44	1039	2026-05-07 11:00:00-06	C-139	recepcion_general	realizada	t	f	f	175.00	131.25	27
+185	60	1039	2026-08-28 09:00:00-06	C-139	correo_institucional	reprogramada	f	f	f	175.00	175.00	27
+216	9	1039	2026-03-04 09:30:00-06	C-139	telefonico	realizada	f	f	f	175.00	175.00	27
+247	25	1039	2026-06-25 10:00:00-06	C-139	recepcion_medico	realizada	t	f	f	175.00	131.25	27
+278	41	1039	2026-10-16 10:30:00-06	C-139	recepcion_general	realizada	f	f	f	175.00	175.00	27
+309	57	1039	2026-04-22 11:00:00-06	C-139	correo_institucional	realizada	f	f	f	175.00	175.00	27
+111	11	1042	2026-05-28 08:30:00-06	C-142	recepcion_medico	realizada	f	f	f	150.00	150.00	29
+142	27	1042	2026-09-18 09:00:00-06	C-142	recepcion_general	realizada	t	f	f	150.00	112.50	29
+173	43	1042	2026-03-25 09:30:00-06	C-142	correo_institucional	realizada	f	f	f	150.00	150.00	29
+204	59	1042	2026-07-16 10:00:00-06	C-142	telefonico	realizada	f	f	f	150.00	150.00	29
+235	8	1042	2026-01-20 08:00:00-06	C-142	recepcion_medico	reprogramada	t	f	f	150.00	112.50	29
+266	24	1042	2026-05-13 08:30:00-06	C-142	recepcion_general	realizada	f	f	f	150.00	150.00	29
+297	40	1042	2026-09-03 09:00:00-06	C-142	correo_institucional	realizada	f	f	f	150.00	150.00	29
+130	10	1044	2026-04-15 09:00:00-06	C-144	recepcion_general	cancelada	t	f	f	205.00	153.75	31
+161	26	1044	2026-08-06 09:30:00-06	C-144	correo_institucional	realizada	f	f	f	205.00	205.00	31
+192	42	1044	2026-02-10 10:00:00-06	C-144	telefonico	realizada	f	f	f	205.00	205.00	31
+223	58	1044	2026-06-03 10:30:00-06	C-144	recepcion_medico	realizada	t	f	f	205.00	153.75	31
+254	7	1044	2026-09-24 11:00:00-06	C-144	recepcion_general	realizada	f	t	f	205.00	164.00	31
+285	23	1044	2026-03-31 09:00:00-06	C-144	correo_institucional	reprogramada	f	f	f	205.00	205.00	31
+316	39	1044	2026-07-22 09:30:00-06	C-144	telefonico	realizada	t	f	f	205.00	153.75	31
+118	60	1048	2026-08-27 09:30:00-06	C-148	recepcion_general	realizada	t	f	f	145.00	108.75	33
+149	9	1048	2026-03-03 10:00:00-06	C-148	correo_institucional	realizada	f	t	f	145.00	116.00	33
+180	25	1048	2026-06-24 08:00:00-06	C-148	telefonico	cancelada	f	f	t	145.00	145.00	33
+211	41	1048	2026-10-15 08:30:00-06	C-148	recepcion_medico	realizada	t	f	f	145.00	108.75	33
+242	57	1048	2026-04-21 09:00:00-06	C-148	recepcion_general	realizada	f	f	f	145.00	145.00	33
+273	6	1048	2026-08-12 09:30:00-06	C-148	correo_institucional	realizada	f	f	f	145.00	145.00	33
+304	22	1048	2026-02-16 10:00:00-06	C-148	telefonico	realizada	t	f	f	145.00	108.75	33
+106	43	1051	2026-03-24 09:30:00-06	C-151	recepcion_general	realizada	t	f	f	160.00	120.00	35
+137	59	1051	2026-07-15 10:00:00-06	C-151	correo_institucional	realizada	f	f	f	160.00	160.00	35
+168	8	1051	2026-01-19 10:30:00-06	C-151	telefonico	realizada	f	f	f	160.00	160.00	35
+199	24	1051	2026-05-12 11:00:00-06	C-151	recepcion_medico	realizada	t	f	f	160.00	120.00	35
+230	40	1051	2026-09-02 09:00:00-06	C-151	recepcion_general	cancelada	f	f	f	160.00	160.00	35
+261	56	1051	2026-03-09 09:30:00-06	C-151	correo_institucional	realizada	f	t	f	160.00	128.00	35
+292	5	1051	2026-06-30 10:00:00-06	C-151	telefonico	realizada	t	f	f	160.00	120.00	35
+5	5	1005	2026-08-11 09:15:00-06	A-108	recepcion_medico	realizada	f	f	f	180.00	180.00	2
+107	50	1005	2026-04-06 09:00:00-06	C-105	recepcion_medico	realizada	f	t	f	180.00	144.00	9
+138	66	1005	2026-07-28 09:30:00-06	C-105	recepcion_general	realizada	f	f	f	180.00	180.00	9
+169	15	1005	2026-02-01 10:00:00-06	C-105	correo_institucional	realizada	t	f	f	180.00	135.00	9
+200	31	1005	2026-05-25 08:00:00-06	C-105	telefonico	cancelada	f	f	t	180.00	180.00	9
+231	47	1005	2026-09-15 08:30:00-06	C-105	recepcion_medico	realizada	f	f	f	180.00	180.00	9
+262	63	1005	2026-03-22 09:00:00-06	C-105	recepcion_general	realizada	t	f	f	180.00	135.00	9
+293	12	1005	2026-07-13 09:30:00-06	C-105	correo_institucional	realizada	f	f	f	180.00	180.00	9
+126	49	1011	2026-02-22 09:30:00-06	C-111	recepcion_general	realizada	f	f	f	210.00	210.00	11
+157	65	1011	2026-06-15 10:00:00-06	C-111	correo_institucional	realizada	t	f	f	210.00	157.50	11
+188	14	1011	2026-10-06 10:30:00-06	C-111	telefonico	realizada	f	f	f	210.00	210.00	11
+219	30	1011	2026-04-12 11:00:00-06	C-111	recepcion_medico	realizada	f	t	f	210.00	168.00	11
+250	46	1011	2026-08-03 09:00:00-06	C-111	recepcion_general	cancelada	t	f	f	210.00	157.50	11
+281	62	1011	2026-02-07 09:30:00-06	C-111	correo_institucional	realizada	f	f	f	210.00	210.00	11
+312	11	1011	2026-05-31 10:00:00-06	C-111	telefonico	realizada	f	f	f	210.00	210.00	11
+120	7	1012	2026-09-22 08:00:00-06	C-112	telefonico	cancelada	f	f	t	195.00	195.00	16
+151	23	1012	2026-03-29 08:30:00-06	C-112	recepcion_medico	realizada	t	f	f	195.00	146.25	16
+182	39	1012	2026-07-20 09:00:00-06	C-112	recepcion_general	realizada	f	f	f	195.00	195.00	16
+213	55	1012	2026-01-24 09:30:00-06	C-112	correo_institucional	realizada	f	f	f	195.00	195.00	16
+244	4	1012	2026-05-17 10:00:00-06	C-112	telefonico	realizada	t	f	f	195.00	146.25	16
+275	20	1012	2026-09-07 08:00:00-06	C-112	recepcion_medico	reprogramada	f	t	f	195.00	156.00	16
+306	36	1012	2026-03-14 08:30:00-06	C-112	recepcion_general	realizada	f	f	f	195.00	195.00	16
+103	22	1031	2026-02-13 09:30:00-06	C-131	recepcion_medico	realizada	t	f	f	170.00	127.50	19
+134	38	1031	2026-06-06 10:00:00-06	C-131	recepcion_general	realizada	f	f	f	170.00	170.00	19
+165	54	1031	2026-09-27 08:00:00-06	C-131	correo_institucional	reprogramada	f	f	f	170.00	170.00	19
+196	3	1031	2026-04-03 08:30:00-06	C-131	telefonico	realizada	t	f	f	170.00	127.50	19
+227	19	1031	2026-07-25 09:00:00-06	C-131	recepcion_medico	realizada	f	f	f	170.00	170.00	19
+258	35	1031	2026-01-29 09:30:00-06	C-131	recepcion_general	realizada	f	f	f	170.00	170.00	19
+289	51	1031	2026-05-22 10:00:00-06	C-131	correo_institucional	realizada	t	f	f	170.00	127.50	19
+320	67	1031	2026-09-12 08:00:00-06	C-131	telefonico	cancelada	f	f	t	170.00	170.00	19
+122	21	1033	2026-10-18 09:00:00-06	C-133	recepcion_general	realizada	f	f	f	230.00	230.00	21
+153	37	1033	2026-04-24 09:30:00-06	C-133	correo_institucional	realizada	f	f	f	230.00	230.00	21
+184	53	1033	2026-08-15 10:00:00-06	C-133	telefonico	realizada	t	f	f	230.00	172.50	21
+215	2	1033	2026-02-19 08:00:00-06	C-133	recepcion_medico	reprogramada	f	f	f	230.00	230.00	21
+246	18	1033	2026-06-12 08:30:00-06	C-133	recepcion_general	realizada	f	f	f	230.00	230.00	21
+277	34	1033	2026-10-03 09:00:00-06	C-133	correo_institucional	realizada	t	f	f	230.00	172.50	21
+308	50	1033	2026-04-09 09:30:00-06	C-133	telefonico	realizada	f	f	f	230.00	230.00	21
+110	4	1036	2026-05-15 08:00:00-06	C-136	recepcion_general	cancelada	f	f	f	165.00	165.00	24
+141	20	1036	2026-09-05 08:30:00-06	C-136	correo_institucional	realizada	f	f	f	165.00	165.00	24
+172	36	1036	2026-03-12 09:00:00-06	C-136	telefonico	realizada	t	f	f	165.00	123.75	24
+203	52	1036	2026-07-03 09:30:00-06	C-136	recepcion_medico	realizada	f	f	f	165.00	165.00	24
+234	1	1036	2026-01-07 10:00:00-06	C-136	recepcion_general	realizada	f	f	f	165.00	165.00	24
+265	17	1036	2026-04-30 08:00:00-06	C-136	correo_institucional	reprogramada	t	f	f	165.00	123.75	24
+296	33	1036	2026-08-21 08:30:00-06	C-136	telefonico	realizada	f	t	f	165.00	132.00	24
+129	3	1038	2026-04-02 10:00:00-06	C-138	correo_institucional	realizada	f	f	f	210.00	210.00	26
+160	19	1038	2026-07-24 08:00:00-06	C-138	telefonico	cancelada	t	f	t	210.00	157.50	26
+191	35	1038	2026-01-28 08:30:00-06	C-138	recepcion_medico	realizada	f	t	f	210.00	168.00	26
+222	51	1038	2026-05-21 09:00:00-06	C-138	recepcion_general	realizada	f	f	f	210.00	210.00	26
+253	67	1038	2026-09-11 09:30:00-06	C-138	correo_institucional	realizada	t	f	f	210.00	157.50	26
+284	16	1038	2026-03-18 10:00:00-06	C-138	telefonico	realizada	f	f	f	210.00	210.00	26
+315	32	1038	2026-07-09 08:00:00-06	C-138	recepcion_medico	reprogramada	f	f	f	210.00	210.00	26
+117	53	1041	2026-08-14 09:00:00-06	C-141	correo_institucional	realizada	f	f	f	160.00	160.00	28
+148	2	1041	2026-02-18 09:30:00-06	C-141	telefonico	realizada	t	f	f	160.00	120.00	28
+179	18	1041	2026-06-11 10:00:00-06	C-141	recepcion_medico	realizada	f	f	f	160.00	160.00	28
+210	34	1041	2026-10-02 08:00:00-06	C-141	recepcion_general	cancelada	f	f	f	160.00	160.00	28
+241	50	1041	2026-04-08 08:30:00-06	C-141	correo_institucional	realizada	t	f	f	160.00	120.00	28
+272	66	1041	2026-07-30 09:00:00-06	C-141	telefonico	realizada	f	f	f	160.00	160.00	28
+303	15	1041	2026-02-03 09:30:00-06	C-141	recepcion_medico	realizada	f	t	f	160.00	128.00	28
+105	36	1043	2026-03-11 08:00:00-06	C-143	correo_institucional	reprogramada	f	f	f	215.00	215.00	30
+136	52	1043	2026-07-02 08:30:00-06	C-143	telefonico	realizada	t	f	f	215.00	161.25	30
+167	1	1043	2026-01-06 09:00:00-06	C-143	recepcion_medico	realizada	f	f	f	215.00	215.00	30
+198	17	1043	2026-04-29 09:30:00-06	C-143	recepcion_general	realizada	f	t	f	215.00	172.00	30
+229	33	1043	2026-08-20 10:00:00-06	C-143	correo_institucional	realizada	t	f	f	215.00	161.25	30
+260	49	1043	2026-02-24 08:00:00-06	C-143	telefonico	cancelada	f	f	t	215.00	215.00	30
+291	65	1043	2026-06-17 08:30:00-06	C-143	recepcion_medico	realizada	f	f	f	215.00	215.00	30
+124	35	1047	2026-01-27 10:00:00-06	C-147	telefonico	realizada	t	f	f	150.00	112.50	32
+155	51	1047	2026-05-20 08:00:00-06	C-147	recepcion_medico	reprogramada	f	f	f	150.00	150.00	32
+186	67	1047	2026-09-10 08:30:00-06	C-147	recepcion_general	realizada	f	f	f	150.00	150.00	32
+217	16	1047	2026-03-17 09:00:00-06	C-147	correo_institucional	realizada	t	f	f	150.00	112.50	32
+248	32	1047	2026-07-08 09:30:00-06	C-147	telefonico	realizada	f	f	f	150.00	150.00	32
+279	48	1047	2026-01-12 10:00:00-06	C-147	recepcion_medico	realizada	f	f	f	150.00	150.00	32
+310	64	1047	2026-05-05 08:00:00-06	C-147	recepcion_general	cancelada	t	f	f	150.00	112.50	32
+112	18	1049	2026-06-10 09:00:00-06	C-149	telefonico	realizada	t	f	f	200.00	150.00	34
+143	34	1049	2026-10-01 09:30:00-06	C-149	recepcion_medico	realizada	f	f	f	200.00	200.00	34
+174	50	1049	2026-04-07 10:00:00-06	C-149	recepcion_general	realizada	f	f	f	200.00	200.00	34
+205	66	1049	2026-07-29 08:00:00-06	C-149	correo_institucional	reprogramada	t	f	f	200.00	150.00	34
+236	15	1049	2026-02-02 08:30:00-06	C-149	telefonico	realizada	f	f	f	200.00	200.00	34
+267	31	1049	2026-05-26 09:00:00-06	C-149	recepcion_medico	realizada	f	f	f	200.00	200.00	34
+298	47	1049	2026-09-16 09:30:00-06	C-149	recepcion_general	realizada	t	f	f	200.00	150.00	34
+\.
+
+
+--
+-- Data for Name: clasificacion_asa; Type: TABLE DATA; Schema: public; Owner: admin
+--
+
+COPY public.clasificacion_asa (codigo, descripcion) FROM stdin;
+I	Paciente sano
+II	Enfermedad sistémica leve
+III	Enfermedad sistémica grave
+IV	Enfermedad grave que amenaza la vida
+V	Paciente moribundo que no sobrevivirá sin la operación
+VI	Muerte cerebral, donante de órganos
+\.
+
+
+--
+-- Data for Name: clinica; Type: TABLE DATA; Schema: public; Owner: admin
+--
+
+COPY public.clinica (id_clinica, id_unidad, numero) FROM stdin;
+1	11	A-101
+2	11	A-108
+3	11	A-205
+4	11	B-110
+5	11	C-101
+6	11	C-102
+7	11	C-103
+8	11	C-104
+9	11	C-105
+10	11	C-110
+11	11	C-111
+12	11	C-113
+13	11	C-115
+14	11	C-117
+15	11	C-118
+16	21	C-112
+17	21	C-114
+18	21	C-119
+19	21	C-131
+20	21	C-132
+21	21	C-133
+22	21	C-134
+23	31	C-116
+24	31	C-136
+25	31	C-137
+26	31	C-138
+27	31	C-139
+28	41	C-141
+29	41	C-142
+30	41	C-143
+31	41	C-144
+32	51	C-147
+33	51	C-148
+34	51	C-149
+35	51	C-151
 \.
 
 
@@ -6785,6 +3630,30 @@ COPY public.estado_civil (id_estado_civil, nombre) FROM stdin;
 
 
 --
+-- Data for Name: examen_laboratorio; Type: TABLE DATA; Schema: public; Owner: admin
+--
+
+COPY public.examen_laboratorio (id_examen, nombre, descripcion, costo) FROM stdin;
+1	Hematología completa	Conteo de glóbulos rojos, blancos y plaquetas	75.00
+2	Glucosa en ayunas	Nivel de azúcar en sangre	35.00
+3	Hemoglobina glicosilada	Control de diabetes de los últimos 3 meses	120.00
+4	Perfil de lípidos	Colesterol total, HDL, LDL y triglicéridos	110.00
+5	Creatinina	Función de los riñones	40.00
+6	Ácido úrico	Nivel de ácido úrico en sangre	40.00
+7	Examen general de orina	Análisis físico, químico y microscópico de la orina	45.00
+8	Examen de heces	Búsqueda de parásitos y sangre oculta	45.00
+9	TSH	Función de la tiroides	130.00
+10	Pruebas hepáticas	Función del hígado	150.00
+11	Electrolitos	Sodio, potasio y cloro	95.00
+12	Proteína C reactiva	Indicador de inflamación	80.00
+13	Prueba de embarazo	Hormona hCG en sangre	60.00
+14	Rayos X de tórax	Radiografía de pulmones y corazón	175.00
+15	Ultrasonido abdominal	Imagen de los órganos del abdomen	300.00
+16	Electrocardiograma	Actividad eléctrica del corazón	150.00
+\.
+
+
+--
 -- Data for Name: factura; Type: TABLE DATA; Schema: public; Owner: admin
 --
 
@@ -7192,6 +4061,50 @@ COPY public.factura (id_factura, id_cita, id_ingreso, id_cirugia, fecha_emision,
 401	\N	\N	141	2026-09-17 19:13:00-06	Cirugía: hernioplastia inguinal + insumos utilizados.	8981.50	10
 402	\N	\N	143	2026-10-01 19:59:00-06	Cirugía: hernioplastia inguinal + insumos utilizados.	8751.50	12
 403	\N	\N	144	2026-10-04 20:22:00-06	Cirugía: revascularización miocárdica + insumos utilizados.	12920.00	1
+\.
+
+
+--
+-- Data for Name: forma_farmaceutica; Type: TABLE DATA; Schema: public; Owner: admin
+--
+
+COPY public.forma_farmaceutica (codigo, descripcion) FROM stdin;
+tableta	Tableta sólida para tomar por vía oral
+capsula	Cápsula para tomar por vía oral
+jarabe	Líquido espeso para tomar por vía oral
+suspension	Líquido con partículas que se agita antes de tomar
+inyectable	Solución para aplicar con jeringa
+crema	Uso tópico sobre la piel
+gotas	Gotas oftálmicas, óticas u orales
+inhalador	Dosis que se inhala por la boca
+\.
+
+
+--
+-- Data for Name: funcion_equipo; Type: TABLE DATA; Schema: public; Owner: admin
+--
+
+COPY public.funcion_equipo (codigo, descripcion) FROM stdin;
+exploracion	Permite revisar al paciente
+diagnostico	Ayuda a identificar la enfermedad
+tratamiento	Se usa para tratar al paciente
+rehabilitacion	Apoya la recuperación
+otro	Otra función
+\.
+
+
+--
+-- Data for Name: funcion_instrumento; Type: TABLE DATA; Schema: public; Owner: admin
+--
+
+COPY public.funcion_instrumento (codigo, descripcion) FROM stdin;
+corte	Corta o diseca tejido
+contencion	Sujeta o sostiene tejidos o agujas
+hemostatica	Detiene el sangrado
+retractor	Separa los bordes de la herida
+accesorio	Apoyo durante el procedimiento
+implante	Queda dentro del paciente
+otro	Otra función
 \.
 
 
@@ -7739,7 +4652,6 @@ COPY public.medico (id_medico, nombres, apellidos, dpi, telefono, id_hospital, i
 1029	Carlos	Menéndez Ralda	2001123450129	5551-2029	1	3	Urbana	328	externo	\N	\N	\N	medico	medico	\N
 1030	Luis	Zambrano Sic	2001123450130	5551-2030	2	6	Urbana	329	externo	\N	\N	\N	medico	medico	\N
 1001	Carmen	Ruiz Palacios	2001123450101	5551-2001	1	1	Urbana	307	general	200.00	08:00:00	12:00:00	medico	medico	1005
-1015	Andrés	Chinchilla Paz	2001123450115	5551-2015	1	1	Urbana	307	general	130.00	08:00:00	12:00:00	medico	medico	1011
 1004	Julia	Paredes Ovalle	2001123450104	5551-2004	1	1	Urbana	312	especialista	180.00	08:00:00	12:00:00	medico	medico	1011
 1002	Roberto	Castillo Méndez	2001123450102	5551-2002	1	3	Urbana	301	especialista	220.00	08:00:00	11:30:00	medico	director_medico	\N
 1006	Alejandro	Ramírez Lemus	2001123450106	5551-2006	1	1	Urbana	315	residente	\N	\N	\N	medico	medico	1005
@@ -7758,6 +4670,7 @@ COPY public.medico (id_medico, nombres, apellidos, dpi, telefono, id_hospital, i
 1040	Samuel	Barrios Juárez	2001123450140	5551-2040	3	8	Urbana	326	especialista	\N	\N	\N	medico	medico	1036
 1016	Paola	Sandoval Itzep	2001123450116	5551-2016	3	7	Urbana	310	especialista	185.00	08:00:00	12:00:00	medico	medico	1009
 1039	Gloria	Tax Chiquitó	2001123450139	5551-2039	3	8	Urbana	302	especialista	175.00	09:00:00	12:00:00	medico	medico	1009
+1015	Andrés	Chinchilla Paz	2001123450115	5551-2015	1	1	Urbana	307	general	130.00	08:00:00	12:00:00	medico	medico	1011
 1042	Héctor Manuel	Gómez Ordóñez	2001123450142	5551-2042	4	10	Rural	307	general	150.00	08:00:00	12:00:00	medico	medico	1041
 1046	Kevin	Domingo Pascual	2001123450146	5551-2046	4	10	Rural	318	interno	\N	\N	\N	medico	medico	1042
 1044	Jorge Mario	Alvarado Castillo	2001123450144	5551-2044	4	9	Urbana	304	especialista	205.00	09:00:00	12:00:00	medico	medico	1045
@@ -7777,6 +4690,18 @@ COPY public.medico (id_medico, nombres, apellidos, dpi, telefono, id_hospital, i
 1047	Lucía	Cumes Xajil	2001123450147	5551-2047	5	12	Urbana	307	general	150.00	08:00:00	12:00:00	medico	jefe_servicio	1049
 1049	Sandra	Tuy Guarcax	2001123450149	5551-2049	5	11	Urbana	312	especialista	200.00	08:00:00	12:00:00	medico	director_medico	\N
 1050	Alberto	Ramos Sajquiy	2001123450150	5551-2050	5	11	Urbana	324	especialista	\N	\N	\N	medico	jefe_servicio	1049
+\.
+
+
+--
+-- Data for Name: medio_asignacion; Type: TABLE DATA; Schema: public; Owner: admin
+--
+
+COPY public.medio_asignacion (codigo, descripcion) FROM stdin;
+telefonico	Llamada al número de Hospitales de Occidente
+correo_institucional	Correo institucional
+recepcion_general	Recepción general del hospital
+recepcion_medico	Recepción del médico
 \.
 
 
@@ -7811,6 +4736,168 @@ COPY public.municipio (id_municipio, id_departamento, nombre) FROM stdin;
 12	19	Panajachel
 13	17	Malacatán
 14	15	San Sebastián
+\.
+
+
+--
+-- Data for Name: orden_examen; Type: TABLE DATA; Schema: public; Owner: admin
+--
+
+COPY public.orden_examen (id_orden, id_examen) FROM stdin;
+111	16
+123	12
+228	5
+228	10
+222	15
+258	3
+234	16
+297	10
+171	12
+234	11
+237	14
+108	13
+168	9
+102	12
+294	7
+189	14
+117	6
+252	13
+204	2
+312	9
+129	2
+168	14
+282	16
+126	15
+114	8
+108	2
+207	16
+192	6
+186	11
+294	12
+264	9
+306	3
+276	5
+288	1
+318	4
+174	15
+243	4
+162	3
+153	10
+132	10
+288	6
+276	10
+246	7
+291	4
+246	12
+219	12
+231	8
+258	8
+282	11
+198	12
+249	10
+156	13
+216	14
+138	16
+102	7
+192	1
+126	4
+138	11
+144	1
+267	12
+216	9
+252	2
+183	8
+279	8
+306	8
+318	15
+222	4
+186	16
+303	16
+159	16
+201	10
+177	2
+273	2
+264	14
+261	6
+204	13
+198	7
+114	3
+144	6
+174	4
+141	14
+156	2
+213	6
+147	4
+132	5
+312	14
+309	6
+162	8
+\.
+
+
+--
+-- Data for Name: orden_laboratorio; Type: TABLE DATA; Schema: public; Owner: admin
+--
+
+COPY public.orden_laboratorio (id_orden, id_consulta, fecha, indicaciones) FROM stdin;
+102	102	2026-01-31	Presentarse en ayunas de 8 horas.
+108	108	2026-04-19	Presentarse en ayunas de 8 horas.
+111	111	2026-05-28	Traer resultados a la próxima cita.
+114	114	2026-07-06	Presentarse en ayunas de 8 horas.
+117	117	2026-08-14	Traer resultados a la próxima cita.
+123	123	2026-01-14	Traer resultados a la próxima cita.
+126	126	2026-02-22	Presentarse en ayunas de 8 horas.
+129	129	2026-04-02	Traer resultados a la próxima cita.
+132	132	2026-05-11	Presentarse en ayunas de 8 horas.
+138	138	2026-07-28	Presentarse en ayunas de 8 horas.
+141	141	2026-09-05	Traer resultados a la próxima cita.
+144	144	2026-10-14	Presentarse en ayunas de 8 horas.
+147	147	2026-02-05	Traer resultados a la próxima cita.
+153	153	2026-04-24	Traer resultados a la próxima cita.
+156	156	2026-06-02	Presentarse en ayunas de 8 horas.
+159	159	2026-07-11	Traer resultados a la próxima cita.
+162	162	2026-08-19	Presentarse en ayunas de 8 horas.
+168	168	2026-01-19	Presentarse en ayunas de 8 horas.
+171	171	2026-02-27	Traer resultados a la próxima cita.
+174	174	2026-04-07	Presentarse en ayunas de 8 horas.
+177	177	2026-05-16	Traer resultados a la próxima cita.
+183	183	2026-08-02	Traer resultados a la próxima cita.
+186	186	2026-09-10	Presentarse en ayunas de 8 horas.
+189	189	2026-10-19	Traer resultados a la próxima cita.
+192	192	2026-02-10	Presentarse en ayunas de 8 horas.
+198	198	2026-04-29	Presentarse en ayunas de 8 horas.
+201	201	2026-06-07	Traer resultados a la próxima cita.
+204	204	2026-07-16	Presentarse en ayunas de 8 horas.
+207	207	2026-08-24	Traer resultados a la próxima cita.
+213	213	2026-01-24	Traer resultados a la próxima cita.
+216	216	2026-03-04	Presentarse en ayunas de 8 horas.
+219	219	2026-04-12	Traer resultados a la próxima cita.
+222	222	2026-05-21	Presentarse en ayunas de 8 horas.
+228	228	2026-08-07	Presentarse en ayunas de 8 horas.
+231	231	2026-09-15	Traer resultados a la próxima cita.
+234	234	2026-01-07	Presentarse en ayunas de 8 horas.
+237	237	2026-02-15	Traer resultados a la próxima cita.
+243	243	2026-05-04	Traer resultados a la próxima cita.
+246	246	2026-06-12	Presentarse en ayunas de 8 horas.
+249	249	2026-07-21	Traer resultados a la próxima cita.
+252	252	2026-08-29	Presentarse en ayunas de 8 horas.
+258	258	2026-01-29	Presentarse en ayunas de 8 horas.
+261	261	2026-03-09	Traer resultados a la próxima cita.
+264	264	2026-04-17	Presentarse en ayunas de 8 horas.
+267	267	2026-05-26	Traer resultados a la próxima cita.
+273	273	2026-08-12	Traer resultados a la próxima cita.
+276	276	2026-09-20	Presentarse en ayunas de 8 horas.
+279	279	2026-01-12	Traer resultados a la próxima cita.
+282	282	2026-02-20	Presentarse en ayunas de 8 horas.
+288	288	2026-05-09	Presentarse en ayunas de 8 horas.
+291	291	2026-06-17	Traer resultados a la próxima cita.
+294	294	2026-07-26	Presentarse en ayunas de 8 horas.
+297	297	2026-09-03	Traer resultados a la próxima cita.
+303	303	2026-02-03	Traer resultados a la próxima cita.
+306	306	2026-03-14	Presentarse en ayunas de 8 horas.
+309	309	2026-04-22	Traer resultados a la próxima cita.
+312	312	2026-05-31	Presentarse en ayunas de 8 horas.
+318	318	2026-08-17	Presentarse en ayunas de 8 horas.
 \.
 
 
@@ -8819,34 +5906,6 @@ COPY public.parentesco (id_parentesco, nombre) FROM stdin;
 --
 
 COPY public.personal (id_personal, tipo_personal, nombres, apellidos, dpi, telefono, direccion, id_municipio, area, id_hospital, fecha_contratacion, salario, nivel_acceso) FROM stdin;
-1003	medico	Andrea	Soto Fuentes	2001123450103	5551-2003	14 calle 14-53, zona 3	6	Rural	1	2015-07-23	18500.00	operativo
-1006	medico	Alejandro	Ramírez Lemus	2001123450106	5551-2006	2 calle 17-56, zona 6	1	Urbana	1	2016-05-09	9500.00	operativo
-1008	medico	Daniel	Morales Peña	2001123450108	5551-2008	4 calle 19-58, zona 8	1	Urbana	1	2016-11-19	6500.00	operativo
-1010	medico	Elena	Vásquez Sotelo	2001123450110	5551-2010	6 calle 21-60, zona 10	1	Urbana	1	2017-06-01	18500.00	operativo
-1013	medico	Fernando	López Arriaga	2001123450113	5551-2013	9 calle 24-63, zona 2	3	Urbana	1	2018-03-19	18500.00	operativo
-1014	medico	Claudia	Recinos Toj	2001123450114	5551-2014	10 calle 25-64, zona 3	6	Urbana	2	2018-06-24	18500.00	operativo
-1015	medico	Andrés	Chinchilla Paz	2001123450115	5551-2015	11 calle 26-65, zona 4	1	Urbana	1	2018-09-29	13000.00	operativo
-1016	medico	Paola	Sandoval Itzep	2001123450116	5551-2016	12 calle 27-66, zona 5	7	Urbana	3	2019-01-04	18500.00	operativo
-1017	medico	Ricardo	Batz Coyoy	2001123450117	5551-2017	13 calle 28-67, zona 6	1	Urbana	1	2019-04-11	18500.00	operativo
-1018	medico	Silvia	Gómez Tuch	2001123450118	5551-2018	14 calle 29-68, zona 7	3	Urbana	1	2019-07-17	18500.00	operativo
-1019	medico	Julio	Estrada Mazariegos	2001123450119	5551-2019	15 calle 30-69, zona 8	6	Urbana	2	2019-10-22	18500.00	operativo
-1007	medico	Hilda	Cifuentes Rojas	2001123450107	5551-2007	3 calle 18-57, zona 7	6	Urbana	2	\N	\N	consulta
-1020	medico	René	Iguarán Solís	2001123450120	5551-2020	1 calle 1-70, zona 9	1	Urbana	1	\N	\N	consulta
-1021	medico	Wilfredo	Chávez Orozco	2001123450121	5551-2021	2 calle 2-71, zona 10	6	Urbana	2	\N	\N	consulta
-1022	medico	Ana	Lucero Fuentes	2001123450122	5551-2022	3 calle 3-72, zona 11	1	Urbana	3	\N	\N	consulta
-1023	medico	Héctor	Quirós Barrios	2001123450123	5551-2023	4 calle 4-73, zona 1	3	Urbana	1	\N	\N	consulta
-1024	medico	Verónica	Aranda Cruz	2001123450124	5551-2024	5 calle 5-74, zona 2	1	Urbana	2	\N	\N	consulta
-1025	medico	Gustavo	Rivas Monzón	2001123450125	5551-2025	6 calle 6-75, zona 3	7	Urbana	3	\N	\N	consulta
-1026	medico	Mónica	Figueroa Lam	2001123450126	5551-2026	7 calle 7-76, zona 4	1	Urbana	1	\N	\N	consulta
-1027	medico	Pablo	Tzoc Ajcá	2001123450127	5551-2027	8 calle 8-77, zona 5	6	Urbana	2	\N	\N	consulta
-1028	medico	Isabel	Contreras Mejía	2001123450128	5551-2028	9 calle 9-78, zona 6	1	Urbana	3	\N	\N	consulta
-1029	medico	Carlos	Menéndez Ralda	2001123450129	5551-2029	10 calle 10-79, zona 7	3	Urbana	1	\N	\N	consulta
-1030	medico	Luis	Zambrano Sic	2001123450130	5551-2030	11 calle 11-80, zona 8	6	Urbana	2	\N	\N	consulta
-2001	enfermero	Luis	Hernández Solís	2001123450201	5552-2001	10 avenida 2-51, zona 4	1	Urbana	1	2018-01-18	7200.00	operativo
-2002	enfermero	Marta	Recinos Alvarado	2001123450202	5552-2002	11 avenida 3-52, zona 5	1	Urbana	1	2018-03-12	7200.00	operativo
-2003	enfermero	Carlos	García Méndez	2001123450203	5552-2003	12 avenida 4-53, zona 6	1	Urbana	1	2018-05-04	3800.00	operativo
-2004	enfermero	Ana	López Pérez	2001123450204	5552-2004	1 avenida 5-54, zona 7	1	Urbana	1	2018-06-26	7200.00	operativo
-2005	enfermero	Pedro	Ramírez Soto	2001123450205	5552-2005	2 avenida 6-55, zona 8	1	Urbana	1	2018-08-18	7200.00	operativo
 1032	medico	Esteban	Orozco Bámaca	2001123450132	5551-2032	8 avenida 2-40, zona 3	6	Rural	2	2019-07-15	13000.00	operativo
 1034	medico	Iván	Coyoy Tzul	2001123450134	5551-2034	6 calle 1-77, zona 4	13	Urbana	2	2020-01-20	18500.00	operativo
 1035	medico	Marisol	Ajanel Pérez	2001123450135	5551-2035	2 avenida 6-18, zona 1	6	Urbana	2	2023-08-01	9500.00	operativo
@@ -8857,8 +5916,18 @@ COPY public.personal (id_personal, tipo_personal, nombres, apellidos, dpi, telef
 1044	medico	Jorge Mario	Alvarado Castillo	2001123450144	5551-2044	3 avenida 7-02, zona 5	9	Urbana	4	2016-08-08	18500.00	operativo
 1046	medico	Kevin	Domingo Pascual	2001123450146	5551-2046	1 avenida 2-08, zona 2	10	Rural	4	2025-01-06	6500.00	operativo
 1048	medico	Diego	Yaxón Bocel	2001123450148	5551-2048	Cantón Pujujil, casa 8	11	Rural	5	2020-09-28	13000.00	operativo
-1001	medico	Carmen	Ruiz Palacios	2001123450101	5551-2001	12 calle 12-51, zona 1	1	Urbana	1	2015-01-10	14500.00	operativo
-1004	medico	Julia	Paredes Ovalle	2001123450104	5551-2004	15 calle 15-54, zona 4	1	Urbana	1	2015-10-28	22000.00	supervisor
+2005	enfermero	Pedro	Ramírez Soto	2001123450205	5552-2005	Sin registrar	1	Urbana	1	2016-03-01	7200.00	operativo
+2004	enfermero	Ana	López Pérez	2001123450204	5552-2004	Sin registrar	1	Urbana	1	2016-03-01	7200.00	operativo
+2003	enfermero	Carlos	García Méndez	2001123450203	5552-2003	Sin registrar	1	Urbana	1	2016-03-01	3800.00	operativo
+2002	enfermero	Marta	Recinos Alvarado	2001123450202	5552-2002	Sin registrar	1	Urbana	1	2016-03-01	7200.00	operativo
+2001	enfermero	Luis	Hernández Solís	2001123450201	5552-2001	Sin registrar	1	Urbana	1	2016-03-01	7200.00	operativo
+1007	medico	Hilda	Cifuentes Rojas	2001123450107	5551-2007	Sin registrar	6	Urbana	2	\N	\N	consulta
+1020	medico	René	Iguarán Solís	2001123450120	5551-2020	Sin registrar	1	Urbana	1	\N	\N	consulta
+1021	medico	Wilfredo	Chávez Orozco	2001123450121	5551-2021	Sin registrar	6	Urbana	2	\N	\N	consulta
+1022	medico	Ana	Lucero Fuentes	2001123450122	5551-2022	Sin registrar	1	Urbana	3	\N	\N	consulta
+1023	medico	Héctor	Quirós Barrios	2001123450123	5551-2023	Sin registrar	3	Urbana	1	\N	\N	consulta
+1024	medico	Verónica	Aranda Cruz	2001123450124	5551-2024	Sin registrar	1	Urbana	2	\N	\N	consulta
+1025	medico	Gustavo	Rivas Monzón	2001123450125	5551-2025	Sin registrar	7	Urbana	3	\N	\N	consulta
 1051	medico	Mónica	Pirir Cutzal	2001123450151	5551-2051	Calle del Lago 1-09	12	Urbana	5	2019-05-13	18500.00	operativo
 2006	enfermero	Rosa	Xicará Pop	2001123450206	5552-2006	2 calle 3-10, zona 1	1	Urbana	1	2017-04-03	7200.00	operativo
 2007	enfermero	Julio	Chay Tum	2001123450207	5552-2007	Aldea Chichimecas, casa 2	5	Rural	1	2024-06-17	3800.00	operativo
@@ -8875,10 +5944,6 @@ COPY public.personal (id_personal, tipo_personal, nombres, apellidos, dpi, telef
 2018	enfermero	Claudia	Batz Sequén	2001123450218	5552-2018	Cantón Xajaxac, casa 1	11	Rural	5	2018-08-20	7200.00	operativo
 2019	enfermero	Edwin	Coj Lacán	2001123450219	5552-2019	1 calle 5-25, zona 1	11	Urbana	5	2024-10-07	3800.00	operativo
 2020	enfermero	Vilma	Ixcoy Boj	2001123450220	5552-2020	9 avenida 4-12, zona 2	1	Urbana	1	2018-02-26	7200.00	operativo
-1005	medico	Miguel	Barrios Donis	2001123450105	5551-2005	1 calle 16-55, zona 5	2	Rural	1	2016-02-02	22000.00	supervisor
-1009	medico	Silvia	Vásquez Cotero	2001123450109	5551-2009	5 calle 20-59, zona 9	7	Urbana	3	2017-02-24	22000.00	supervisor
-1011	medico	Marcos	Aguilar Salazar	2001123450111	5551-2011	7 calle 22-61, zona 11	1	Urbana	1	2017-09-06	22000.00	supervisor
-1012	medico	Gabriela	Nájera Ruiz	2001123450112	5551-2012	8 calle 23-62, zona 1	6	Urbana	2	2017-12-12	22000.00	supervisor
 1031	medico	Rosa María	Fuentes Galindo	2001123450131	5551-2031	3 calle 5-12, zona 1	6	Urbana	2	2016-02-01	22000.00	supervisor
 1033	medico	Leticia	Morales Chávez	2001123450133	5551-2033	1 calle 9-03, zona 2	6	Urbana	2	2011-03-10	28000.00	administrador
 1036	medico	Otto René	Velásquez Lima	2001123450136	5551-2036	4 calle 3-30, zona 1	8	Urbana	3	2014-05-05	22000.00	supervisor
@@ -8889,7 +5954,29 @@ COPY public.personal (id_personal, tipo_personal, nombres, apellidos, dpi, telef
 1047	medico	Lucía	Cumes Xajil	2001123450147	5551-2047	Calle Santander 4-11	12	Urbana	5	2014-07-21	22000.00	supervisor
 1049	medico	Sandra	Tuy Guarcax	2001123450149	5551-2049	7 calle 2-33, zona 1	11	Urbana	5	2008-02-04	28000.00	administrador
 1050	medico	Alberto	Ramos Sajquiy	2001123450150	5551-2050	3 avenida 5-60, zona 2	11	Urbana	5	2012-12-03	22000.00	supervisor
-1002	medico	Roberto	Castillo Méndez	2001123450102	5551-2002	13 calle 13-52, zona 2	3	Urbana	1	2015-04-17	28000.00	administrador
+1002	medico	Roberto	Castillo Méndez	2001123450102	5551-2002	Sin registrar	3	Urbana	1	2015-01-15	28000.00	administrador
+1026	medico	Mónica	Figueroa Lam	2001123450126	5551-2026	Sin registrar	1	Urbana	1	\N	\N	consulta
+1027	medico	Pablo	Tzoc Ajcá	2001123450127	5551-2027	Sin registrar	6	Urbana	2	\N	\N	consulta
+1028	medico	Isabel	Contreras Mejía	2001123450128	5551-2028	Sin registrar	1	Urbana	3	\N	\N	consulta
+1029	medico	Carlos	Menéndez Ralda	2001123450129	5551-2029	Sin registrar	3	Urbana	1	\N	\N	consulta
+1030	medico	Luis	Zambrano Sic	2001123450130	5551-2030	Sin registrar	6	Urbana	2	\N	\N	consulta
+1015	medico	Andrés	Chinchilla Paz	2001123450115	5551-2015	Sin registrar	1	Urbana	1	2015-01-15	13000.00	operativo
+1006	medico	Alejandro	Ramírez Lemus	2001123450106	5551-2006	Sin registrar	1	Urbana	1	2015-01-15	9500.00	operativo
+1008	medico	Daniel	Morales Peña	2001123450108	5551-2008	Sin registrar	1	Urbana	1	2015-01-15	6500.00	operativo
+1003	medico	Andrea	Soto Fuentes	2001123450103	5551-2003	Sin registrar	6	Rural	1	2015-01-15	18500.00	operativo
+1010	medico	Elena	Vásquez Sotelo	2001123450110	5551-2010	Sin registrar	1	Urbana	1	2015-01-15	18500.00	operativo
+1013	medico	Fernando	López Arriaga	2001123450113	5551-2013	Sin registrar	3	Urbana	1	2015-01-15	18500.00	operativo
+1017	medico	Ricardo	Batz Coyoy	2001123450117	5551-2017	Sin registrar	1	Urbana	1	2015-01-15	18500.00	operativo
+1018	medico	Silvia	Gómez Tuch	2001123450118	5551-2018	Sin registrar	3	Urbana	1	2015-01-15	18500.00	operativo
+1014	medico	Claudia	Recinos Toj	2001123450114	5551-2014	Sin registrar	6	Urbana	2	2015-01-15	18500.00	operativo
+1019	medico	Julio	Estrada Mazariegos	2001123450119	5551-2019	Sin registrar	6	Urbana	2	2015-01-15	18500.00	operativo
+1016	medico	Paola	Sandoval Itzep	2001123450116	5551-2016	Sin registrar	7	Urbana	3	2015-01-15	18500.00	operativo
+1005	medico	Miguel	Barrios Donis	2001123450105	5551-2005	Sin registrar	2	Rural	1	2015-01-15	22000.00	supervisor
+1009	medico	Silvia	Vásquez Cotero	2001123450109	5551-2009	Sin registrar	7	Urbana	3	2015-01-15	22000.00	supervisor
+1001	medico	Carmen	Ruiz Palacios	2001123450101	5551-2001	Sin registrar	1	Urbana	1	2015-01-15	14500.00	operativo
+1004	medico	Julia	Paredes Ovalle	2001123450104	5551-2004	Sin registrar	1	Urbana	1	2015-01-15	22000.00	supervisor
+1011	medico	Marcos	Aguilar Salazar	2001123450111	5551-2011	Sin registrar	1	Urbana	1	2015-01-15	22000.00	supervisor
+1012	medico	Gabriela	Nájera Ruiz	2001123450112	5551-2012	Sin registrar	6	Urbana	2	2015-01-15	22000.00	supervisor
 \.
 
 
@@ -11047,6 +8134,19 @@ COPY public.tipo_cirugia (id_tipo_cirugia, nombre, id_especialidad) FROM stdin;
 15	Rinoplastia reconstructiva	327
 16	Lobectomía pulmonar	328
 17	Prostatectomía	329
+\.
+
+
+--
+-- Data for Name: tipo_medico; Type: TABLE DATA; Schema: public; Owner: admin
+--
+
+COPY public.tipo_medico (codigo, descripcion) FROM stdin;
+general	Médico general contratado
+especialista	Médico especialista contratado
+residente	Médico residente en formación
+interno	Médico interno en formación
+externo	Cirujano de otra institución que solo llega a operar
 \.
 
 
@@ -14006,34 +11106,6 @@ COPY public.unidad_medica (id_unidad, id_hospital, tipo_unidad, costo_dia_hospit
 
 
 --
--- Name: cirujano_id_cirujano_seq; Type: SEQUENCE SET; Schema: propuesta_bloque_e; Owner: admin
---
-
-SELECT pg_catalog.setval('propuesta_bloque_e.cirujano_id_cirujano_seq', 2, true);
-
-
---
--- Name: especialidad_id_especialidad_seq; Type: SEQUENCE SET; Schema: propuesta_bloque_e; Owner: admin
---
-
-SELECT pg_catalog.setval('propuesta_bloque_e.especialidad_id_especialidad_seq', 2, true);
-
-
---
--- Name: insumo_id_insumo_seq; Type: SEQUENCE SET; Schema: propuesta_bloque_e; Owner: admin
---
-
-SELECT pg_catalog.setval('propuesta_bloque_e.insumo_id_insumo_seq', 4, true);
-
-
---
--- Name: paciente_id_paciente_seq; Type: SEQUENCE SET; Schema: propuesta_bloque_e; Owner: admin
---
-
-SELECT pg_catalog.setval('propuesta_bloque_e.paciente_id_paciente_seq', 4, true);
-
-
---
 -- Name: agendamiento_quirurgico_id_agendamiento_seq; Type: SEQUENCE SET; Schema: public; Owner: admin
 --
 
@@ -14048,7 +11120,7 @@ SELECT pg_catalog.setval('public.aspecto_quirurgico_id_aspecto_seq', 39, false);
 
 
 --
--- Name: auditoria_personal_id_auditoria_seq; Type: SEQUENCE SET; Schema: public; Owner: dueno_auditoria
+-- Name: auditoria_personal_id_auditoria_seq; Type: SEQUENCE SET; Schema: public; Owner: admin
 --
 
 SELECT pg_catalog.setval('public.auditoria_personal_id_auditoria_seq', 4, true);
@@ -14094,6 +11166,13 @@ SELECT pg_catalog.setval('public.cirugia_personal_id_cirugia_personal_seq', 125,
 --
 
 SELECT pg_catalog.setval('public.cita_id_cita_seq', 6, false);
+
+
+--
+-- Name: clinica_id_clinica_seq; Type: SEQUENCE SET; Schema: public; Owner: admin
+--
+
+SELECT pg_catalog.setval('public.clinica_id_clinica_seq', 35, true);
 
 
 --
@@ -14157,6 +11236,13 @@ SELECT pg_catalog.setval('public.especialidad_id_especialidad_seq', 330, false);
 --
 
 SELECT pg_catalog.setval('public.estado_civil_id_estado_civil_seq', 6, false);
+
+
+--
+-- Name: examen_laboratorio_id_examen_seq; Type: SEQUENCE SET; Schema: public; Owner: admin
+--
+
+SELECT pg_catalog.setval('public.examen_laboratorio_id_examen_seq', 16, true);
 
 
 --
@@ -14230,6 +11316,13 @@ SELECT pg_catalog.setval('public.municipio_id_municipio_seq', 9, false);
 
 
 --
+-- Name: orden_laboratorio_id_orden_seq; Type: SEQUENCE SET; Schema: public; Owner: admin
+--
+
+SELECT pg_catalog.setval('public.orden_laboratorio_id_orden_seq', 318, true);
+
+
+--
 -- Name: paciente_id_paciente_seq; Type: SEQUENCE SET; Schema: public; Owner: admin
 --
 
@@ -14254,7 +11347,7 @@ SELECT pg_catalog.setval('public.parentesco_id_parentesco_seq', 10, false);
 -- Name: personal_id_personal_seq; Type: SEQUENCE SET; Schema: public; Owner: admin
 --
 
-SELECT pg_catalog.setval('public.personal_id_personal_seq', 2020, true);
+SELECT pg_catalog.setval('public.personal_id_personal_seq', 2021, false);
 
 
 --
@@ -14328,86 +11421,6 @@ SELECT pg_catalog.setval('public.unidad_medica_id_unidad_seq', 35, false);
 
 
 --
--- Name: cirugia_insumo cirugia_insumo_pkey; Type: CONSTRAINT; Schema: propuesta_bloque_e; Owner: admin
---
-
-ALTER TABLE ONLY propuesta_bloque_e.cirugia_insumo
-    ADD CONSTRAINT cirugia_insumo_pkey PRIMARY KEY (id_cirugia, id_insumo);
-
-
---
--- Name: cirugia cirugia_pkey; Type: CONSTRAINT; Schema: propuesta_bloque_e; Owner: admin
---
-
-ALTER TABLE ONLY propuesta_bloque_e.cirugia
-    ADD CONSTRAINT cirugia_pkey PRIMARY KEY (id_cirugia);
-
-
---
--- Name: cirujano cirujano_pkey; Type: CONSTRAINT; Schema: propuesta_bloque_e; Owner: admin
---
-
-ALTER TABLE ONLY propuesta_bloque_e.cirujano
-    ADD CONSTRAINT cirujano_pkey PRIMARY KEY (id_cirujano);
-
-
---
--- Name: diagnostico diagnostico_pkey; Type: CONSTRAINT; Schema: propuesta_bloque_e; Owner: admin
---
-
-ALTER TABLE ONLY propuesta_bloque_e.diagnostico
-    ADD CONSTRAINT diagnostico_pkey PRIMARY KEY (codigo_cie10);
-
-
---
--- Name: especialidad especialidad_pkey; Type: CONSTRAINT; Schema: propuesta_bloque_e; Owner: admin
---
-
-ALTER TABLE ONLY propuesta_bloque_e.especialidad
-    ADD CONSTRAINT especialidad_pkey PRIMARY KEY (id_especialidad);
-
-
---
--- Name: insumo insumo_pkey; Type: CONSTRAINT; Schema: propuesta_bloque_e; Owner: admin
---
-
-ALTER TABLE ONLY propuesta_bloque_e.insumo
-    ADD CONSTRAINT insumo_pkey PRIMARY KEY (id_insumo);
-
-
---
--- Name: paciente paciente_pkey; Type: CONSTRAINT; Schema: propuesta_bloque_e; Owner: admin
---
-
-ALTER TABLE ONLY propuesta_bloque_e.paciente
-    ADD CONSTRAINT paciente_pkey PRIMARY KEY (id_paciente);
-
-
---
--- Name: reporte_cirugia reporte_cirugia_pkey; Type: CONSTRAINT; Schema: propuesta_bloque_e; Owner: admin
---
-
-ALTER TABLE ONLY propuesta_bloque_e.reporte_cirugia
-    ADD CONSTRAINT reporte_cirugia_pkey PRIMARY KEY (id_cirugia);
-
-
---
--- Name: especialidad uq_especialidad_nombre; Type: CONSTRAINT; Schema: propuesta_bloque_e; Owner: admin
---
-
-ALTER TABLE ONLY propuesta_bloque_e.especialidad
-    ADD CONSTRAINT uq_especialidad_nombre UNIQUE (nombre);
-
-
---
--- Name: insumo uq_insumo_nombre; Type: CONSTRAINT; Schema: propuesta_bloque_e; Owner: admin
---
-
-ALTER TABLE ONLY propuesta_bloque_e.insumo
-    ADD CONSTRAINT uq_insumo_nombre UNIQUE (nombre);
-
-
---
 -- Name: agendamiento_quirurgico agendamiento_quirurgico_pkey; Type: CONSTRAINT; Schema: public; Owner: admin
 --
 
@@ -14424,7 +11437,7 @@ ALTER TABLE ONLY public.aspecto_quirurgico
 
 
 --
--- Name: auditoria_personal auditoria_personal_pkey; Type: CONSTRAINT; Schema: public; Owner: dueno_auditoria
+-- Name: auditoria_personal auditoria_personal_pkey; Type: CONSTRAINT; Schema: public; Owner: admin
 --
 
 ALTER TABLE ONLY public.auditoria_personal
@@ -14485,6 +11498,22 @@ ALTER TABLE ONLY public.cirugia
 
 ALTER TABLE ONLY public.cita
     ADD CONSTRAINT cita_pkey PRIMARY KEY (id_cita);
+
+
+--
+-- Name: clasificacion_asa clasificacion_asa_pkey; Type: CONSTRAINT; Schema: public; Owner: admin
+--
+
+ALTER TABLE ONLY public.clasificacion_asa
+    ADD CONSTRAINT clasificacion_asa_pkey PRIMARY KEY (codigo);
+
+
+--
+-- Name: clinica clinica_pkey; Type: CONSTRAINT; Schema: public; Owner: admin
+--
+
+ALTER TABLE ONLY public.clinica
+    ADD CONSTRAINT clinica_pkey PRIMARY KEY (id_clinica);
 
 
 --
@@ -14584,11 +11613,43 @@ ALTER TABLE ONLY public.estado_civil
 
 
 --
+-- Name: examen_laboratorio examen_laboratorio_pkey; Type: CONSTRAINT; Schema: public; Owner: admin
+--
+
+ALTER TABLE ONLY public.examen_laboratorio
+    ADD CONSTRAINT examen_laboratorio_pkey PRIMARY KEY (id_examen);
+
+
+--
 -- Name: factura factura_pkey; Type: CONSTRAINT; Schema: public; Owner: admin
 --
 
 ALTER TABLE ONLY public.factura
     ADD CONSTRAINT factura_pkey PRIMARY KEY (id_factura);
+
+
+--
+-- Name: forma_farmaceutica forma_farmaceutica_pkey; Type: CONSTRAINT; Schema: public; Owner: admin
+--
+
+ALTER TABLE ONLY public.forma_farmaceutica
+    ADD CONSTRAINT forma_farmaceutica_pkey PRIMARY KEY (codigo);
+
+
+--
+-- Name: funcion_equipo funcion_equipo_pkey; Type: CONSTRAINT; Schema: public; Owner: admin
+--
+
+ALTER TABLE ONLY public.funcion_equipo
+    ADD CONSTRAINT funcion_equipo_pkey PRIMARY KEY (codigo);
+
+
+--
+-- Name: funcion_instrumento funcion_instrumento_pkey; Type: CONSTRAINT; Schema: public; Owner: admin
+--
+
+ALTER TABLE ONLY public.funcion_instrumento
+    ADD CONSTRAINT funcion_instrumento_pkey PRIMARY KEY (codigo);
 
 
 --
@@ -14664,6 +11725,14 @@ ALTER TABLE ONLY public.medico
 
 
 --
+-- Name: medio_asignacion medio_asignacion_pkey; Type: CONSTRAINT; Schema: public; Owner: admin
+--
+
+ALTER TABLE ONLY public.medio_asignacion
+    ADD CONSTRAINT medio_asignacion_pkey PRIMARY KEY (codigo);
+
+
+--
 -- Name: metodo_pago metodo_pago_pkey; Type: CONSTRAINT; Schema: public; Owner: admin
 --
 
@@ -14677,6 +11746,22 @@ ALTER TABLE ONLY public.metodo_pago
 
 ALTER TABLE ONLY public.municipio
     ADD CONSTRAINT municipio_pkey PRIMARY KEY (id_municipio);
+
+
+--
+-- Name: orden_examen orden_examen_pkey; Type: CONSTRAINT; Schema: public; Owner: admin
+--
+
+ALTER TABLE ONLY public.orden_examen
+    ADD CONSTRAINT orden_examen_pkey PRIMARY KEY (id_orden, id_examen);
+
+
+--
+-- Name: orden_laboratorio orden_laboratorio_pkey; Type: CONSTRAINT; Schema: public; Owner: admin
+--
+
+ALTER TABLE ONLY public.orden_laboratorio
+    ADD CONSTRAINT orden_laboratorio_pkey PRIMARY KEY (id_orden);
 
 
 --
@@ -14808,6 +11893,14 @@ ALTER TABLE ONLY public.tipo_cirugia
 
 
 --
+-- Name: tipo_medico tipo_medico_pkey; Type: CONSTRAINT; Schema: public; Owner: admin
+--
+
+ALTER TABLE ONLY public.tipo_medico
+    ADD CONSTRAINT tipo_medico_pkey PRIMARY KEY (codigo);
+
+
+--
 -- Name: traslado traslado_pkey; Type: CONSTRAINT; Schema: public; Owner: admin
 --
 
@@ -14888,6 +11981,14 @@ ALTER TABLE ONLY public.cirugia_personal
 
 
 --
+-- Name: clinica uq_clinica_numero; Type: CONSTRAINT; Schema: public; Owner: admin
+--
+
+ALTER TABLE ONLY public.clinica
+    ADD CONSTRAINT uq_clinica_numero UNIQUE (id_unidad, numero);
+
+
+--
 -- Name: consentimiento_informado uq_consentimiento_agendamiento; Type: CONSTRAINT; Schema: public; Owner: admin
 --
 
@@ -14965,6 +12066,14 @@ ALTER TABLE ONLY public.especialidad
 
 ALTER TABLE ONLY public.estado_civil
     ADD CONSTRAINT uq_estado_civil_nombre UNIQUE (nombre);
+
+
+--
+-- Name: examen_laboratorio uq_examen_nombre; Type: CONSTRAINT; Schema: public; Owner: admin
+--
+
+ALTER TABLE ONLY public.examen_laboratorio
+    ADD CONSTRAINT uq_examen_nombre UNIQUE (nombre);
 
 
 --
@@ -15184,716 +12293,17 @@ ALTER TABLE ONLY public.unidad_medica
 
 
 --
--- Name: ix_agendamiento_quirurgico_id_medico_cirujano; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_agendamiento_quirurgico_id_medico_cirujano ON public.agendamiento_quirurgico USING btree (id_medico_cirujano);
-
-
---
--- Name: ix_agendamiento_quirurgico_id_paciente; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_agendamiento_quirurgico_id_paciente ON public.agendamiento_quirurgico USING btree (id_paciente);
-
-
---
--- Name: ix_agendamiento_quirurgico_id_quirofano_solicitado; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_agendamiento_quirurgico_id_quirofano_solicitado ON public.agendamiento_quirurgico USING btree (id_quirofano_solicitado);
-
-
---
--- Name: ix_agendamiento_quirurgico_id_tipo_anestesia; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_agendamiento_quirurgico_id_tipo_anestesia ON public.agendamiento_quirurgico USING btree (id_tipo_anestesia);
-
-
---
--- Name: ix_agendamiento_quirurgico_id_tipo_cirugia; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_agendamiento_quirurgico_id_tipo_cirugia ON public.agendamiento_quirurgico USING btree (id_tipo_cirugia);
-
-
---
--- Name: ix_calificacion_id_consulta; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_calificacion_id_consulta ON public.calificacion USING btree (id_consulta);
-
-
---
--- Name: ix_calificacion_id_encargado; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_calificacion_id_encargado ON public.calificacion USING btree (id_encargado);
-
-
---
--- Name: ix_calificacion_id_enfermero; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_calificacion_id_enfermero ON public.calificacion USING btree (id_enfermero);
-
-
---
--- Name: ix_calificacion_id_hospital; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_calificacion_id_hospital ON public.calificacion USING btree (id_hospital);
-
-
---
--- Name: ix_calificacion_id_medico; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_calificacion_id_medico ON public.calificacion USING btree (id_medico);
-
-
---
--- Name: ix_calificacion_id_paciente; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_calificacion_id_paciente ON public.calificacion USING btree (id_paciente);
-
-
---
--- Name: ix_chequeo_preanestesico_id_medico_anestesista; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_chequeo_preanestesico_id_medico_anestesista ON public.chequeo_preanestesico USING btree (id_medico_anestesista);
-
-
---
--- Name: ix_chequeo_preanestesico_id_medico_clasifica; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_chequeo_preanestesico_id_medico_clasifica ON public.chequeo_preanestesico USING btree (id_medico_clasifica);
-
-
---
--- Name: ix_cirugia_fecha_hora_inicio; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_cirugia_fecha_hora_inicio ON public.cirugia USING btree (fecha_hora_inicio);
-
-
---
--- Name: ix_cirugia_id_ingreso; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_cirugia_id_ingreso ON public.cirugia USING btree (id_ingreso);
-
-
---
--- Name: ix_cirugia_id_quirofano; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_cirugia_id_quirofano ON public.cirugia USING btree (id_quirofano);
-
-
---
--- Name: ix_cirugia_insumo_id_insumo; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_cirugia_insumo_id_insumo ON public.cirugia_insumo USING btree (id_insumo);
-
-
---
--- Name: ix_cirugia_personal_id_enfermero; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_cirugia_personal_id_enfermero ON public.cirugia_personal USING btree (id_enfermero);
-
-
---
--- Name: ix_cirugia_personal_id_medico; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_cirugia_personal_id_medico ON public.cirugia_personal USING btree (id_medico);
-
-
---
--- Name: ix_cirugia_personal_id_rol; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_cirugia_personal_id_rol ON public.cirugia_personal USING btree (id_rol);
-
-
---
--- Name: ix_cita_fecha_hora; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_cita_fecha_hora ON public.cita USING btree (fecha_hora);
-
-
---
--- Name: ix_cita_id_medico; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_cita_id_medico ON public.cita USING btree (id_medico);
-
-
---
--- Name: ix_cita_id_paciente; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_cita_id_paciente ON public.cita USING btree (id_paciente);
-
-
---
--- Name: ix_consentimiento_informado_id_medico; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_consentimiento_informado_id_medico ON public.consentimiento_informado USING btree (id_medico);
-
-
---
--- Name: ix_consulta_id_diagnostico; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_consulta_id_diagnostico ON public.consulta USING btree (id_diagnostico);
-
-
---
--- Name: ix_documentacion_etapa_id_enfermero; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_documentacion_etapa_id_enfermero ON public.documentacion_etapa USING btree (id_enfermero);
-
-
---
--- Name: ix_egreso_diagnostico_id_diagnostico; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_egreso_diagnostico_id_diagnostico ON public.egreso_diagnostico USING btree (id_diagnostico);
-
-
---
--- Name: ix_egreso_fecha_hora; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_egreso_fecha_hora ON public.egreso USING btree (fecha_hora_egreso);
-
-
---
--- Name: ix_egreso_id_diagnostico_principal; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_egreso_id_diagnostico_principal ON public.egreso USING btree (id_diagnostico_principal);
-
-
---
--- Name: ix_egreso_id_medico; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_egreso_id_medico ON public.egreso USING btree (id_medico);
-
-
---
--- Name: ix_encargado_id_municipio; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_encargado_id_municipio ON public.encargado USING btree (id_municipio);
-
-
---
--- Name: ix_enfermero_id_hospital; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_enfermero_id_hospital ON public.enfermero USING btree (id_hospital);
-
-
---
--- Name: ix_factura_fecha_emision; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_factura_fecha_emision ON public.factura USING btree (fecha_emision);
-
-
---
--- Name: ix_historia_clinica_id_medico; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_historia_clinica_id_medico ON public.historia_clinica USING btree (id_medico);
-
-
---
--- Name: ix_hospital_id_municipio; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_hospital_id_municipio ON public.hospital USING btree (id_municipio);
-
-
---
--- Name: ix_hospitalizacion_insumo_id_insumo; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_hospitalizacion_insumo_id_insumo ON public.hospitalizacion_insumo USING btree (id_insumo);
-
-
---
--- Name: ix_ingreso_fecha_hora; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_ingreso_fecha_hora ON public.ingreso USING btree (fecha_hora_ingreso);
-
-
---
--- Name: ix_ingreso_id_camilla; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_ingreso_id_camilla ON public.ingreso USING btree (id_camilla);
-
-
---
--- Name: ix_ingreso_id_medico_encargado; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_ingreso_id_medico_encargado ON public.ingreso USING btree (id_medico_encargado);
-
-
---
--- Name: ix_ingreso_id_paciente; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_ingreso_id_paciente ON public.ingreso USING btree (id_paciente);
-
-
---
--- Name: ix_ingreso_id_quirofano; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_ingreso_id_quirofano ON public.ingreso USING btree (id_quirofano);
-
-
---
--- Name: ix_ingreso_id_servicio; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_ingreso_id_servicio ON public.ingreso USING btree (id_servicio);
-
-
---
--- Name: ix_ingreso_id_turno; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_ingreso_id_turno ON public.ingreso USING btree (id_turno);
-
-
---
--- Name: ix_ingreso_id_unidad; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_ingreso_id_unidad ON public.ingreso USING btree (id_unidad);
-
-
---
--- Name: ix_institucion_externa_id_municipio; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_institucion_externa_id_municipio ON public.institucion_externa USING btree (id_municipio);
-
-
---
--- Name: ix_medico_id_especialidad; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_medico_id_especialidad ON public.medico USING btree (id_especialidad);
-
-
---
--- Name: ix_medico_id_hospital; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_medico_id_hospital ON public.medico USING btree (id_hospital);
-
-
---
--- Name: ix_medico_id_medico_superior; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_medico_id_medico_superior ON public.medico USING btree (id_medico_superior);
-
-
---
--- Name: ix_medico_id_municipio; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_medico_id_municipio ON public.medico USING btree (id_municipio);
-
-
---
--- Name: ix_paciente_encargado_id_encargado; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_paciente_encargado_id_encargado ON public.paciente_encargado USING btree (id_encargado);
-
-
---
--- Name: ix_paciente_encargado_id_parentesco; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_paciente_encargado_id_parentesco ON public.paciente_encargado USING btree (id_parentesco);
-
-
---
--- Name: ix_paciente_id_estado_civil; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_paciente_id_estado_civil ON public.paciente USING btree (id_estado_civil);
-
-
---
--- Name: ix_paciente_id_municipio; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_paciente_id_municipio ON public.paciente USING btree (id_municipio);
-
-
---
--- Name: ix_pago_fecha_pago; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_pago_fecha_pago ON public.pago USING btree (fecha_pago);
-
-
---
--- Name: ix_pago_id_metodo_pago; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_pago_id_metodo_pago ON public.pago USING btree (id_metodo_pago);
-
-
---
--- Name: ix_receta_medicamento_id_medicamento; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_receta_medicamento_id_medicamento ON public.receta_medicamento USING btree (id_medicamento);
-
-
---
--- Name: ix_registro_procedimiento_id_aspecto; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_registro_procedimiento_id_aspecto ON public.registro_procedimiento USING btree (id_aspecto);
-
-
---
--- Name: ix_registro_procedimiento_id_enfermero; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_registro_procedimiento_id_enfermero ON public.registro_procedimiento USING btree (id_enfermero);
-
-
---
--- Name: ix_requerimiento_equipo_id_equipo; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_requerimiento_equipo_id_equipo ON public.requerimiento_equipo USING btree (id_equipo);
-
-
---
--- Name: ix_requerimiento_instrumento_id_instrumento; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_requerimiento_instrumento_id_instrumento ON public.requerimiento_instrumento USING btree (id_instrumento);
-
-
---
--- Name: ix_requerimiento_insumo_id_insumo; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_requerimiento_insumo_id_insumo ON public.requerimiento_insumo USING btree (id_insumo);
-
-
---
--- Name: ix_tipo_cirugia_id_especialidad; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_tipo_cirugia_id_especialidad ON public.tipo_cirugia USING btree (id_especialidad);
-
-
---
--- Name: ix_traslado_id_consulta; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_traslado_id_consulta ON public.traslado USING btree (id_consulta);
-
-
---
--- Name: ix_traslado_id_ingreso; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_traslado_id_ingreso ON public.traslado USING btree (id_ingreso);
-
-
---
--- Name: ix_traslado_id_institucion_destino; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_traslado_id_institucion_destino ON public.traslado USING btree (id_institucion_destino);
-
-
---
--- Name: ix_traslado_id_medico_indica; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_traslado_id_medico_indica ON public.traslado USING btree (id_medico_indica);
-
-
---
--- Name: ix_traslado_id_unidad_destino; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_traslado_id_unidad_destino ON public.traslado USING btree (id_unidad_destino);
-
-
---
--- Name: ix_traslado_id_unidad_origen; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_traslado_id_unidad_origen ON public.traslado USING btree (id_unidad_origen);
-
-
---
--- Name: ix_turno_medico_id_medico; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX ix_turno_medico_id_medico ON public.turno_medico USING btree (id_medico);
-
-
---
--- Name: uq_medico_director_hospital; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE UNIQUE INDEX uq_medico_director_hospital ON public.medico USING btree (id_hospital) WHERE ((cargo)::text = 'director_medico'::text);
-
-
---
--- Name: enfermero trg_01_enfermero_desde_personal; Type: TRIGGER; Schema: public; Owner: admin
---
-
-CREATE TRIGGER trg_01_enfermero_desde_personal BEFORE INSERT OR UPDATE ON public.enfermero FOR EACH ROW EXECUTE FUNCTION public.fn_enfermero_desde_personal();
-
-
---
--- Name: medico trg_01_medico_desde_personal; Type: TRIGGER; Schema: public; Owner: admin
---
-
-CREATE TRIGGER trg_01_medico_desde_personal BEFORE INSERT OR UPDATE ON public.medico FOR EACH ROW EXECUTE FUNCTION public.fn_medico_desde_personal();
-
-
---
--- Name: medico trg_02_medico_jerarquia; Type: TRIGGER; Schema: public; Owner: admin
---
-
-CREATE TRIGGER trg_02_medico_jerarquia BEFORE INSERT OR UPDATE ON public.medico FOR EACH ROW EXECUTE FUNCTION public.fn_medico_jerarquia();
-
-
---
 -- Name: medico trg_auditar_medico; Type: TRIGGER; Schema: public; Owner: admin
 --
 
-CREATE TRIGGER trg_auditar_medico AFTER UPDATE OF id_especialidad ON public.medico FOR EACH ROW WHEN ((new.id_especialidad IS DISTINCT FROM old.id_especialidad)) EXECUTE FUNCTION public.fn_auditar_medico();
+CREATE TRIGGER trg_auditar_medico AFTER UPDATE ON public.medico FOR EACH ROW EXECUTE FUNCTION public.fn_auditar_medico();
 
 
 --
 -- Name: personal trg_auditar_personal; Type: TRIGGER; Schema: public; Owner: admin
 --
 
-CREATE TRIGGER trg_auditar_personal AFTER UPDATE OF salario, nivel_acceso ON public.personal FOR EACH ROW EXECUTE FUNCTION public.fn_auditar_personal();
-
-
---
--- Name: calificacion trg_calificacion_consulta; Type: TRIGGER; Schema: public; Owner: admin
---
-
-CREATE TRIGGER trg_calificacion_consulta BEFORE INSERT OR UPDATE ON public.calificacion FOR EACH ROW EXECUTE FUNCTION public.fn_calificacion_consulta();
-
-
---
--- Name: camilla trg_camilla_unidad; Type: TRIGGER; Schema: public; Owner: admin
---
-
-CREATE TRIGGER trg_camilla_unidad BEFORE INSERT OR UPDATE ON public.camilla FOR EACH ROW EXECUTE FUNCTION public.fn_camilla_unidad();
-
-
---
--- Name: chequeo_preanestesico trg_chequeo_aprobado; Type: TRIGGER; Schema: public; Owner: admin
---
-
-CREATE TRIGGER trg_chequeo_aprobado BEFORE INSERT OR UPDATE OF id_agendamiento ON public.chequeo_preanestesico FOR EACH ROW EXECUTE FUNCTION public.fn_agendamiento_aprobado();
-
-
---
--- Name: cirugia trg_cirugia_aprobada; Type: TRIGGER; Schema: public; Owner: admin
---
-
-CREATE TRIGGER trg_cirugia_aprobada BEFORE INSERT OR UPDATE OF id_agendamiento ON public.cirugia FOR EACH ROW EXECUTE FUNCTION public.fn_agendamiento_aprobado();
-
-
---
--- Name: cirugia_personal trg_cirugia_personal_rol; Type: TRIGGER; Schema: public; Owner: admin
---
-
-CREATE TRIGGER trg_cirugia_personal_rol BEFORE INSERT OR UPDATE ON public.cirugia_personal FOR EACH ROW EXECUTE FUNCTION public.fn_cirugia_personal_rol();
-
-
---
--- Name: consentimiento_informado trg_consentimiento_aprobado; Type: TRIGGER; Schema: public; Owner: admin
---
-
-CREATE TRIGGER trg_consentimiento_aprobado BEFORE INSERT OR UPDATE OF id_agendamiento ON public.consentimiento_informado FOR EACH ROW EXECUTE FUNCTION public.fn_agendamiento_aprobado();
-
-
---
--- Name: consulta trg_consulta_cita; Type: TRIGGER; Schema: public; Owner: admin
---
-
-CREATE TRIGGER trg_consulta_cita BEFORE INSERT OR UPDATE OF id_cita ON public.consulta FOR EACH ROW EXECUTE FUNCTION public.fn_consulta_cita();
-
-
---
--- Name: egreso trg_egreso_fecha; Type: TRIGGER; Schema: public; Owner: admin
---
-
-CREATE TRIGGER trg_egreso_fecha BEFORE INSERT OR UPDATE ON public.egreso FOR EACH ROW EXECUTE FUNCTION public.fn_egreso_fecha();
-
-
---
--- Name: hospitalizacion_insumo trg_hosp_insumo_ingreso; Type: TRIGGER; Schema: public; Owner: admin
---
-
-CREATE TRIGGER trg_hosp_insumo_ingreso BEFORE INSERT OR UPDATE ON public.hospitalizacion_insumo FOR EACH ROW EXECUTE FUNCTION public.fn_hosp_insumo_ingreso();
-
-
---
--- Name: ingreso trg_ingreso_consistencia; Type: TRIGGER; Schema: public; Owner: admin
---
-
-CREATE TRIGGER trg_ingreso_consistencia BEFORE INSERT OR UPDATE ON public.ingreso FOR EACH ROW EXECUTE FUNCTION public.fn_ingreso_consistencia();
-
-
---
--- Name: paciente trg_paciente_nacimiento; Type: TRIGGER; Schema: public; Owner: admin
---
-
-CREATE TRIGGER trg_paciente_nacimiento BEFORE INSERT OR UPDATE OF fecha_nacimiento ON public.paciente FOR EACH ROW EXECUTE FUNCTION public.fn_paciente_nacimiento();
-
-
---
--- Name: pago trg_pago_plan; Type: TRIGGER; Schema: public; Owner: admin
---
-
-CREATE TRIGGER trg_pago_plan BEFORE INSERT OR UPDATE ON public.pago FOR EACH ROW EXECUTE FUNCTION public.fn_pago_plan();
-
-
---
--- Name: personal trg_personal_a_subtipo; Type: TRIGGER; Schema: public; Owner: admin
---
-
-CREATE TRIGGER trg_personal_a_subtipo AFTER UPDATE ON public.personal FOR EACH ROW EXECUTE FUNCTION public.fn_personal_a_subtipo();
-
-
---
--- Name: personal trg_personal_completo; Type: TRIGGER; Schema: public; Owner: admin
---
-
-CREATE CONSTRAINT TRIGGER trg_personal_completo AFTER INSERT ON public.personal DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.fn_personal_completo();
-
-
---
--- Name: quirofano trg_quirofano_unidad; Type: TRIGGER; Schema: public; Owner: admin
---
-
-CREATE TRIGGER trg_quirofano_unidad BEFORE INSERT OR UPDATE ON public.quirofano FOR EACH ROW EXECUTE FUNCTION public.fn_quirofano_unidad();
-
-
---
--- Name: receta trg_receta_proxima_cita; Type: TRIGGER; Schema: public; Owner: admin
---
-
-CREATE TRIGGER trg_receta_proxima_cita BEFORE INSERT OR UPDATE ON public.receta FOR EACH ROW EXECUTE FUNCTION public.fn_receta_proxima_cita();
-
-
---
--- Name: registro_procedimiento trg_registro_resultado; Type: TRIGGER; Schema: public; Owner: admin
---
-
-CREATE TRIGGER trg_registro_resultado BEFORE INSERT OR UPDATE ON public.registro_procedimiento FOR EACH ROW EXECUTE FUNCTION public.fn_registro_resultado();
-
-
---
--- Name: traslado trg_traslado_origen; Type: TRIGGER; Schema: public; Owner: admin
---
-
-CREATE TRIGGER trg_traslado_origen BEFORE INSERT OR UPDATE ON public.traslado FOR EACH ROW EXECUTE FUNCTION public.fn_traslado_origen();
-
-
---
--- Name: turno_medico trg_turno_medico_hospital; Type: TRIGGER; Schema: public; Owner: admin
---
-
-CREATE TRIGGER trg_turno_medico_hospital BEFORE INSERT OR UPDATE ON public.turno_medico FOR EACH ROW EXECUTE FUNCTION public.fn_turno_medico_hospital();
-
-
---
--- Name: turno_emergencia trg_turno_unidad; Type: TRIGGER; Schema: public; Owner: admin
---
-
-CREATE TRIGGER trg_turno_unidad BEFORE INSERT OR UPDATE ON public.turno_emergencia FOR EACH ROW EXECUTE FUNCTION public.fn_turno_unidad();
-
-
---
--- Name: cirugia cirugia_codigo_cie10_fkey; Type: FK CONSTRAINT; Schema: propuesta_bloque_e; Owner: admin
---
-
-ALTER TABLE ONLY propuesta_bloque_e.cirugia
-    ADD CONSTRAINT cirugia_codigo_cie10_fkey FOREIGN KEY (codigo_cie10) REFERENCES propuesta_bloque_e.diagnostico(codigo_cie10) ON UPDATE CASCADE ON DELETE RESTRICT;
-
-
---
--- Name: cirugia cirugia_id_cirujano_fkey; Type: FK CONSTRAINT; Schema: propuesta_bloque_e; Owner: admin
---
-
-ALTER TABLE ONLY propuesta_bloque_e.cirugia
-    ADD CONSTRAINT cirugia_id_cirujano_fkey FOREIGN KEY (id_cirujano) REFERENCES propuesta_bloque_e.cirujano(id_cirujano) ON UPDATE CASCADE ON DELETE RESTRICT;
-
-
---
--- Name: cirugia cirugia_id_paciente_fkey; Type: FK CONSTRAINT; Schema: propuesta_bloque_e; Owner: admin
---
-
-ALTER TABLE ONLY propuesta_bloque_e.cirugia
-    ADD CONSTRAINT cirugia_id_paciente_fkey FOREIGN KEY (id_paciente) REFERENCES propuesta_bloque_e.paciente(id_paciente) ON UPDATE CASCADE ON DELETE RESTRICT;
-
-
---
--- Name: cirugia_insumo cirugia_insumo_id_cirugia_fkey; Type: FK CONSTRAINT; Schema: propuesta_bloque_e; Owner: admin
---
-
-ALTER TABLE ONLY propuesta_bloque_e.cirugia_insumo
-    ADD CONSTRAINT cirugia_insumo_id_cirugia_fkey FOREIGN KEY (id_cirugia) REFERENCES propuesta_bloque_e.cirugia(id_cirugia) ON UPDATE CASCADE ON DELETE CASCADE;
-
-
---
--- Name: cirugia_insumo cirugia_insumo_id_insumo_fkey; Type: FK CONSTRAINT; Schema: propuesta_bloque_e; Owner: admin
---
-
-ALTER TABLE ONLY propuesta_bloque_e.cirugia_insumo
-    ADD CONSTRAINT cirugia_insumo_id_insumo_fkey FOREIGN KEY (id_insumo) REFERENCES propuesta_bloque_e.insumo(id_insumo) ON UPDATE CASCADE ON DELETE RESTRICT;
-
-
---
--- Name: cirujano cirujano_id_especialidad_fkey; Type: FK CONSTRAINT; Schema: propuesta_bloque_e; Owner: admin
---
-
-ALTER TABLE ONLY propuesta_bloque_e.cirujano
-    ADD CONSTRAINT cirujano_id_especialidad_fkey FOREIGN KEY (id_especialidad) REFERENCES propuesta_bloque_e.especialidad(id_especialidad) ON UPDATE CASCADE ON DELETE RESTRICT;
+CREATE TRIGGER trg_auditar_personal AFTER UPDATE ON public.personal FOR EACH ROW EXECUTE FUNCTION public.fn_auditar_personal();
 
 
 --
@@ -16089,6 +12499,14 @@ ALTER TABLE ONLY public.cirugia_personal
 
 
 --
+-- Name: cita cita_id_clinica_fkey; Type: FK CONSTRAINT; Schema: public; Owner: admin
+--
+
+ALTER TABLE ONLY public.cita
+    ADD CONSTRAINT cita_id_clinica_fkey FOREIGN KEY (id_clinica) REFERENCES public.clinica(id_clinica) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
 -- Name: cita cita_id_medico_fkey; Type: FK CONSTRAINT; Schema: public; Owner: admin
 --
 
@@ -16102,6 +12520,14 @@ ALTER TABLE ONLY public.cita
 
 ALTER TABLE ONLY public.cita
     ADD CONSTRAINT cita_id_paciente_fkey FOREIGN KEY (id_paciente) REFERENCES public.paciente(id_paciente) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
+-- Name: clinica clinica_id_unidad_fkey; Type: FK CONSTRAINT; Schema: public; Owner: admin
+--
+
+ALTER TABLE ONLY public.clinica
+    ADD CONSTRAINT clinica_id_unidad_fkey FOREIGN KEY (id_unidad) REFERENCES public.unidad_medica(id_unidad) ON UPDATE CASCADE ON DELETE RESTRICT;
 
 
 --
@@ -16233,6 +12659,22 @@ ALTER TABLE ONLY public.factura
 
 
 --
+-- Name: chequeo_preanestesico fk_chequeo_asa; Type: FK CONSTRAINT; Schema: public; Owner: admin
+--
+
+ALTER TABLE ONLY public.chequeo_preanestesico
+    ADD CONSTRAINT fk_chequeo_asa FOREIGN KEY (clasificacion_asa) REFERENCES public.clasificacion_asa(codigo) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
+-- Name: cita fk_cita_medio; Type: FK CONSTRAINT; Schema: public; Owner: admin
+--
+
+ALTER TABLE ONLY public.cita
+    ADD CONSTRAINT fk_cita_medio FOREIGN KEY (medio_asignacion) REFERENCES public.medio_asignacion(codigo) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
 -- Name: enfermero fk_enfermero_personal; Type: FK CONSTRAINT; Schema: public; Owner: admin
 --
 
@@ -16241,11 +12683,43 @@ ALTER TABLE ONLY public.enfermero
 
 
 --
+-- Name: equipo fk_equipo_funcion; Type: FK CONSTRAINT; Schema: public; Owner: admin
+--
+
+ALTER TABLE ONLY public.equipo
+    ADD CONSTRAINT fk_equipo_funcion FOREIGN KEY (funcion) REFERENCES public.funcion_equipo(codigo) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
+-- Name: instrumento fk_instrumento_funcion; Type: FK CONSTRAINT; Schema: public; Owner: admin
+--
+
+ALTER TABLE ONLY public.instrumento
+    ADD CONSTRAINT fk_instrumento_funcion FOREIGN KEY (funcion) REFERENCES public.funcion_instrumento(codigo) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
+-- Name: medicamento fk_medicamento_forma; Type: FK CONSTRAINT; Schema: public; Owner: admin
+--
+
+ALTER TABLE ONLY public.medicamento
+    ADD CONSTRAINT fk_medicamento_forma FOREIGN KEY (forma_farmaceutica) REFERENCES public.forma_farmaceutica(codigo) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
 -- Name: medico fk_medico_personal; Type: FK CONSTRAINT; Schema: public; Owner: admin
 --
 
 ALTER TABLE ONLY public.medico
     ADD CONSTRAINT fk_medico_personal FOREIGN KEY (id_medico, tipo_personal) REFERENCES public.personal(id_personal, tipo_personal) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
+-- Name: medico fk_medico_tipo; Type: FK CONSTRAINT; Schema: public; Owner: admin
+--
+
+ALTER TABLE ONLY public.medico
+    ADD CONSTRAINT fk_medico_tipo FOREIGN KEY (tipo_medico) REFERENCES public.tipo_medico(codigo) ON UPDATE CASCADE ON DELETE RESTRICT;
 
 
 --
@@ -16390,6 +12864,30 @@ ALTER TABLE ONLY public.medico
 
 ALTER TABLE ONLY public.municipio
     ADD CONSTRAINT municipio_id_departamento_fkey FOREIGN KEY (id_departamento) REFERENCES public.departamento(id_departamento) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
+-- Name: orden_examen orden_examen_id_examen_fkey; Type: FK CONSTRAINT; Schema: public; Owner: admin
+--
+
+ALTER TABLE ONLY public.orden_examen
+    ADD CONSTRAINT orden_examen_id_examen_fkey FOREIGN KEY (id_examen) REFERENCES public.examen_laboratorio(id_examen) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
+-- Name: orden_examen orden_examen_id_orden_fkey; Type: FK CONSTRAINT; Schema: public; Owner: admin
+--
+
+ALTER TABLE ONLY public.orden_examen
+    ADD CONSTRAINT orden_examen_id_orden_fkey FOREIGN KEY (id_orden) REFERENCES public.orden_laboratorio(id_orden) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
+-- Name: orden_laboratorio orden_laboratorio_id_consulta_fkey; Type: FK CONSTRAINT; Schema: public; Owner: admin
+--
+
+ALTER TABLE ONLY public.orden_laboratorio
+    ADD CONSTRAINT orden_laboratorio_id_consulta_fkey FOREIGN KEY (id_consulta) REFERENCES public.consulta(id_consulta) ON UPDATE CASCADE ON DELETE RESTRICT;
 
 
 --
@@ -16665,27 +13163,12 @@ ALTER TABLE ONLY public.unidad_medica
 
 
 --
--- Name: SCHEMA propuesta_bloque_e; Type: ACL; Schema: -; Owner: admin
---
-
-GRANT USAGE ON SCHEMA propuesta_bloque_e TO visor;
-
-
---
 -- Name: SCHEMA public; Type: ACL; Schema: -; Owner: pg_database_owner
 --
 
 REVOKE USAGE ON SCHEMA public FROM PUBLIC;
 GRANT ALL ON SCHEMA public TO admin;
 GRANT USAGE ON SCHEMA public TO visor;
-GRANT ALL ON SCHEMA public TO dueno_auditoria;
-
-
---
--- Name: FUNCTION fn_agendamiento_aprobado(); Type: ACL; Schema: public; Owner: admin
---
-
-REVOKE ALL ON FUNCTION public.fn_agendamiento_aprobado() FROM PUBLIC;
 
 
 --
@@ -16703,359 +13186,6 @@ GRANT ALL ON FUNCTION public.fn_auditar_personal() TO visor;
 
 
 --
--- Name: FUNCTION fn_cadena_mando(p_id_medico integer); Type: ACL; Schema: public; Owner: admin
---
-
-GRANT ALL ON FUNCTION public.fn_cadena_mando(p_id_medico integer) TO visor;
-
-
---
--- Name: FUNCTION fn_calificacion_consulta(); Type: ACL; Schema: public; Owner: admin
---
-
-REVOKE ALL ON FUNCTION public.fn_calificacion_consulta() FROM PUBLIC;
-
-
---
--- Name: FUNCTION fn_camilla_unidad(); Type: ACL; Schema: public; Owner: admin
---
-
-REVOKE ALL ON FUNCTION public.fn_camilla_unidad() FROM PUBLIC;
-
-
---
--- Name: FUNCTION fn_cirugia_personal_rol(); Type: ACL; Schema: public; Owner: admin
---
-
-REVOKE ALL ON FUNCTION public.fn_cirugia_personal_rol() FROM PUBLIC;
-
-
---
--- Name: FUNCTION fn_consulta_cita(); Type: ACL; Schema: public; Owner: admin
---
-
-REVOKE ALL ON FUNCTION public.fn_consulta_cita() FROM PUBLIC;
-
-
---
--- Name: FUNCTION fn_edad(p_fecha_nacimiento date, p_fecha date); Type: ACL; Schema: public; Owner: admin
---
-
-REVOKE ALL ON FUNCTION public.fn_edad(p_fecha_nacimiento date, p_fecha date) FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fn_edad(p_fecha_nacimiento date, p_fecha date) TO visor;
-
-
---
--- Name: FUNCTION fn_egreso_fecha(); Type: ACL; Schema: public; Owner: admin
---
-
-REVOKE ALL ON FUNCTION public.fn_egreso_fecha() FROM PUBLIC;
-
-
---
--- Name: FUNCTION fn_enfermero_desde_personal(); Type: ACL; Schema: public; Owner: admin
---
-
-GRANT ALL ON FUNCTION public.fn_enfermero_desde_personal() TO visor;
-
-
---
--- Name: FUNCTION fn_hosp_insumo_ingreso(); Type: ACL; Schema: public; Owner: admin
---
-
-REVOKE ALL ON FUNCTION public.fn_hosp_insumo_ingreso() FROM PUBLIC;
-
-
---
--- Name: FUNCTION fn_ingreso_consistencia(); Type: ACL; Schema: public; Owner: admin
---
-
-REVOKE ALL ON FUNCTION public.fn_ingreso_consistencia() FROM PUBLIC;
-
-
---
--- Name: FUNCTION fn_medico_desde_personal(); Type: ACL; Schema: public; Owner: admin
---
-
-GRANT ALL ON FUNCTION public.fn_medico_desde_personal() TO visor;
-
-
---
--- Name: FUNCTION fn_medico_jerarquia(); Type: ACL; Schema: public; Owner: admin
---
-
-GRANT ALL ON FUNCTION public.fn_medico_jerarquia() TO visor;
-
-
---
--- Name: FUNCTION fn_objetivo_01(p_desde date, p_hasta date); Type: ACL; Schema: public; Owner: admin
---
-
-GRANT ALL ON FUNCTION public.fn_objetivo_01(p_desde date, p_hasta date) TO visor;
-
-
---
--- Name: FUNCTION fn_objetivo_02(p_desde date, p_hasta date); Type: ACL; Schema: public; Owner: admin
---
-
-GRANT ALL ON FUNCTION public.fn_objetivo_02(p_desde date, p_hasta date) TO visor;
-
-
---
--- Name: FUNCTION fn_objetivo_03(p_desde date, p_hasta date); Type: ACL; Schema: public; Owner: admin
---
-
-GRANT ALL ON FUNCTION public.fn_objetivo_03(p_desde date, p_hasta date) TO visor;
-
-
---
--- Name: FUNCTION fn_objetivo_04(p_desde date, p_hasta date); Type: ACL; Schema: public; Owner: admin
---
-
-GRANT ALL ON FUNCTION public.fn_objetivo_04(p_desde date, p_hasta date) TO visor;
-
-
---
--- Name: FUNCTION fn_objetivo_05(p_desde date, p_hasta date); Type: ACL; Schema: public; Owner: admin
---
-
-GRANT ALL ON FUNCTION public.fn_objetivo_05(p_desde date, p_hasta date) TO visor;
-
-
---
--- Name: FUNCTION fn_objetivo_06(p_desde date, p_hasta date); Type: ACL; Schema: public; Owner: admin
---
-
-GRANT ALL ON FUNCTION public.fn_objetivo_06(p_desde date, p_hasta date) TO visor;
-
-
---
--- Name: FUNCTION fn_objetivo_07(p_desde date, p_hasta date); Type: ACL; Schema: public; Owner: admin
---
-
-GRANT ALL ON FUNCTION public.fn_objetivo_07(p_desde date, p_hasta date) TO visor;
-
-
---
--- Name: FUNCTION fn_objetivo_08(p_desde date, p_hasta date); Type: ACL; Schema: public; Owner: admin
---
-
-GRANT ALL ON FUNCTION public.fn_objetivo_08(p_desde date, p_hasta date) TO visor;
-
-
---
--- Name: FUNCTION fn_objetivo_09(p_desde date, p_hasta date); Type: ACL; Schema: public; Owner: admin
---
-
-GRANT ALL ON FUNCTION public.fn_objetivo_09(p_desde date, p_hasta date) TO visor;
-
-
---
--- Name: FUNCTION fn_objetivo_10(); Type: ACL; Schema: public; Owner: admin
---
-
-GRANT ALL ON FUNCTION public.fn_objetivo_10() TO visor;
-
-
---
--- Name: FUNCTION fn_objetivo_11(p_desde date, p_hasta date); Type: ACL; Schema: public; Owner: admin
---
-
-GRANT ALL ON FUNCTION public.fn_objetivo_11(p_desde date, p_hasta date) TO visor;
-
-
---
--- Name: FUNCTION fn_objetivo_12(p_desde date, p_hasta date); Type: ACL; Schema: public; Owner: admin
---
-
-GRANT ALL ON FUNCTION public.fn_objetivo_12(p_desde date, p_hasta date) TO visor;
-
-
---
--- Name: FUNCTION fn_objetivo_13(p_desde date, p_hasta date); Type: ACL; Schema: public; Owner: admin
---
-
-GRANT ALL ON FUNCTION public.fn_objetivo_13(p_desde date, p_hasta date) TO visor;
-
-
---
--- Name: FUNCTION fn_objetivo_14(p_desde date, p_hasta date); Type: ACL; Schema: public; Owner: admin
---
-
-GRANT ALL ON FUNCTION public.fn_objetivo_14(p_desde date, p_hasta date) TO visor;
-
-
---
--- Name: FUNCTION fn_objetivo_17_correlacionada(p_desde date, p_hasta date); Type: ACL; Schema: public; Owner: admin
---
-
-GRANT ALL ON FUNCTION public.fn_objetivo_17_correlacionada(p_desde date, p_hasta date) TO visor;
-
-
---
--- Name: FUNCTION fn_objetivo_17_ventana(p_desde date, p_hasta date); Type: ACL; Schema: public; Owner: admin
---
-
-GRANT ALL ON FUNCTION public.fn_objetivo_17_ventana(p_desde date, p_hasta date) TO visor;
-
-
---
--- Name: FUNCTION fn_objetivo_18(p_desde date, p_hasta date); Type: ACL; Schema: public; Owner: admin
---
-
-GRANT ALL ON FUNCTION public.fn_objetivo_18(p_desde date, p_hasta date) TO visor;
-
-
---
--- Name: FUNCTION fn_paciente_nacimiento(); Type: ACL; Schema: public; Owner: admin
---
-
-REVOKE ALL ON FUNCTION public.fn_paciente_nacimiento() FROM PUBLIC;
-
-
---
--- Name: FUNCTION fn_pago_plan(); Type: ACL; Schema: public; Owner: admin
---
-
-REVOKE ALL ON FUNCTION public.fn_pago_plan() FROM PUBLIC;
-
-
---
--- Name: FUNCTION fn_personal_a_subtipo(); Type: ACL; Schema: public; Owner: admin
---
-
-GRANT ALL ON FUNCTION public.fn_personal_a_subtipo() TO visor;
-
-
---
--- Name: FUNCTION fn_personal_completo(); Type: ACL; Schema: public; Owner: admin
---
-
-GRANT ALL ON FUNCTION public.fn_personal_completo() TO visor;
-
-
---
--- Name: FUNCTION fn_promedio_medico(p_desde date, p_hasta date); Type: ACL; Schema: public; Owner: admin
---
-
-GRANT ALL ON FUNCTION public.fn_promedio_medico(p_desde date, p_hasta date) TO visor;
-
-
---
--- Name: FUNCTION fn_quirofano_unidad(); Type: ACL; Schema: public; Owner: admin
---
-
-REVOKE ALL ON FUNCTION public.fn_quirofano_unidad() FROM PUBLIC;
-
-
---
--- Name: FUNCTION fn_receta_proxima_cita(); Type: ACL; Schema: public; Owner: admin
---
-
-REVOKE ALL ON FUNCTION public.fn_receta_proxima_cita() FROM PUBLIC;
-
-
---
--- Name: FUNCTION fn_registrar_auditoria(p_usuario_bd text, p_tabla text, p_id integer, p_campo text, p_anterior text, p_nuevo text); Type: ACL; Schema: public; Owner: dueno_auditoria
---
-
-REVOKE ALL ON FUNCTION public.fn_registrar_auditoria(p_usuario_bd text, p_tabla text, p_id integer, p_campo text, p_anterior text, p_nuevo text) FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fn_registrar_auditoria(p_usuario_bd text, p_tabla text, p_id integer, p_campo text, p_anterior text, p_nuevo text) TO admin;
-
-
---
--- Name: FUNCTION fn_registro_resultado(); Type: ACL; Schema: public; Owner: admin
---
-
-REVOKE ALL ON FUNCTION public.fn_registro_resultado() FROM PUBLIC;
-
-
---
--- Name: FUNCTION fn_tipo_unidad(p_id_unidad integer); Type: ACL; Schema: public; Owner: admin
---
-
-REVOKE ALL ON FUNCTION public.fn_tipo_unidad(p_id_unidad integer) FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fn_tipo_unidad(p_id_unidad integer) TO visor;
-
-
---
--- Name: FUNCTION fn_traslado_origen(); Type: ACL; Schema: public; Owner: admin
---
-
-REVOKE ALL ON FUNCTION public.fn_traslado_origen() FROM PUBLIC;
-
-
---
--- Name: FUNCTION fn_turno_medico_hospital(); Type: ACL; Schema: public; Owner: admin
---
-
-REVOKE ALL ON FUNCTION public.fn_turno_medico_hospital() FROM PUBLIC;
-
-
---
--- Name: FUNCTION fn_turno_unidad(); Type: ACL; Schema: public; Owner: admin
---
-
-REVOKE ALL ON FUNCTION public.fn_turno_unidad() FROM PUBLIC;
-
-
---
--- Name: TABLE cirugia; Type: ACL; Schema: propuesta_bloque_e; Owner: admin
---
-
-GRANT SELECT ON TABLE propuesta_bloque_e.cirugia TO visor;
-
-
---
--- Name: TABLE cirugia_insumo; Type: ACL; Schema: propuesta_bloque_e; Owner: admin
---
-
-GRANT SELECT ON TABLE propuesta_bloque_e.cirugia_insumo TO visor;
-
-
---
--- Name: TABLE cirujano; Type: ACL; Schema: propuesta_bloque_e; Owner: admin
---
-
-GRANT SELECT ON TABLE propuesta_bloque_e.cirujano TO visor;
-
-
---
--- Name: TABLE diagnostico; Type: ACL; Schema: propuesta_bloque_e; Owner: admin
---
-
-GRANT SELECT ON TABLE propuesta_bloque_e.diagnostico TO visor;
-
-
---
--- Name: TABLE especialidad; Type: ACL; Schema: propuesta_bloque_e; Owner: admin
---
-
-GRANT SELECT ON TABLE propuesta_bloque_e.especialidad TO visor;
-
-
---
--- Name: TABLE insumo; Type: ACL; Schema: propuesta_bloque_e; Owner: admin
---
-
-GRANT SELECT ON TABLE propuesta_bloque_e.insumo TO visor;
-
-
---
--- Name: TABLE paciente; Type: ACL; Schema: propuesta_bloque_e; Owner: admin
---
-
-GRANT SELECT ON TABLE propuesta_bloque_e.paciente TO visor;
-
-
---
--- Name: TABLE reporte_cirugia; Type: ACL; Schema: propuesta_bloque_e; Owner: admin
---
-
-GRANT SELECT ON TABLE propuesta_bloque_e.reporte_cirugia TO visor;
-
-
---
 -- Name: TABLE agendamiento_quirurgico; Type: ACL; Schema: public; Owner: admin
 --
 
@@ -17070,18 +13200,10 @@ GRANT SELECT ON TABLE public.aspecto_quirurgico TO visor;
 
 
 --
--- Name: TABLE auditoria_personal; Type: ACL; Schema: public; Owner: dueno_auditoria
+-- Name: TABLE auditoria_personal; Type: ACL; Schema: public; Owner: admin
 --
 
-GRANT SELECT ON TABLE public.auditoria_personal TO admin;
 GRANT SELECT ON TABLE public.auditoria_personal TO visor;
-
-
---
--- Name: SEQUENCE auditoria_personal_id_auditoria_seq; Type: ACL; Schema: public; Owner: dueno_auditoria
---
-
-GRANT ALL ON SEQUENCE public.auditoria_personal_id_auditoria_seq TO admin;
 
 
 --
@@ -17131,6 +13253,20 @@ GRANT SELECT ON TABLE public.cirugia_personal TO visor;
 --
 
 GRANT SELECT ON TABLE public.cita TO visor;
+
+
+--
+-- Name: TABLE clasificacion_asa; Type: ACL; Schema: public; Owner: admin
+--
+
+GRANT SELECT ON TABLE public.clasificacion_asa TO visor;
+
+
+--
+-- Name: TABLE clinica; Type: ACL; Schema: public; Owner: admin
+--
+
+GRANT SELECT ON TABLE public.clinica TO visor;
 
 
 --
@@ -17218,10 +13354,38 @@ GRANT SELECT ON TABLE public.estado_civil TO visor;
 
 
 --
+-- Name: TABLE examen_laboratorio; Type: ACL; Schema: public; Owner: admin
+--
+
+GRANT SELECT ON TABLE public.examen_laboratorio TO visor;
+
+
+--
 -- Name: TABLE factura; Type: ACL; Schema: public; Owner: admin
 --
 
 GRANT SELECT ON TABLE public.factura TO visor;
+
+
+--
+-- Name: TABLE forma_farmaceutica; Type: ACL; Schema: public; Owner: admin
+--
+
+GRANT SELECT ON TABLE public.forma_farmaceutica TO visor;
+
+
+--
+-- Name: TABLE funcion_equipo; Type: ACL; Schema: public; Owner: admin
+--
+
+GRANT SELECT ON TABLE public.funcion_equipo TO visor;
+
+
+--
+-- Name: TABLE funcion_instrumento; Type: ACL; Schema: public; Owner: admin
+--
+
+GRANT SELECT ON TABLE public.funcion_instrumento TO visor;
 
 
 --
@@ -17288,6 +13452,13 @@ GRANT SELECT ON TABLE public.medico TO visor;
 
 
 --
+-- Name: TABLE medio_asignacion; Type: ACL; Schema: public; Owner: admin
+--
+
+GRANT SELECT ON TABLE public.medio_asignacion TO visor;
+
+
+--
 -- Name: TABLE metodo_pago; Type: ACL; Schema: public; Owner: admin
 --
 
@@ -17299,6 +13470,20 @@ GRANT SELECT ON TABLE public.metodo_pago TO visor;
 --
 
 GRANT SELECT ON TABLE public.municipio TO visor;
+
+
+--
+-- Name: TABLE orden_examen; Type: ACL; Schema: public; Owner: admin
+--
+
+GRANT SELECT ON TABLE public.orden_examen TO visor;
+
+
+--
+-- Name: TABLE orden_laboratorio; Type: ACL; Schema: public; Owner: admin
+--
+
+GRANT SELECT ON TABLE public.orden_laboratorio TO visor;
 
 
 --
@@ -17414,6 +13599,13 @@ GRANT SELECT ON TABLE public.tipo_cirugia TO visor;
 
 
 --
+-- Name: TABLE tipo_medico; Type: ACL; Schema: public; Owner: admin
+--
+
+GRANT SELECT ON TABLE public.tipo_medico TO visor;
+
+
+--
 -- Name: TABLE traslado; Type: ACL; Schema: public; Owner: admin
 --
 
@@ -17439,41 +13631,6 @@ GRANT SELECT ON TABLE public.turno_medico TO visor;
 --
 
 GRANT SELECT ON TABLE public.unidad_medica TO visor;
-
-
---
--- Name: TABLE v_cirugia; Type: ACL; Schema: public; Owner: admin
---
-
-GRANT SELECT ON TABLE public.v_cirugia TO visor;
-
-
---
--- Name: TABLE v_consulta; Type: ACL; Schema: public; Owner: admin
---
-
-GRANT SELECT ON TABLE public.v_consulta TO visor;
-
-
---
--- Name: TABLE v_estancia; Type: ACL; Schema: public; Owner: admin
---
-
-GRANT SELECT ON TABLE public.v_estancia TO visor;
-
-
---
--- Name: TABLE v_factura; Type: ACL; Schema: public; Owner: admin
---
-
-GRANT SELECT ON TABLE public.v_factura TO visor;
-
-
---
--- Name: TABLE v_paciente; Type: ACL; Schema: public; Owner: admin
---
-
-GRANT SELECT ON TABLE public.v_paciente TO visor;
 
 
 --
@@ -17516,5 +13673,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE hospital IN SCHEMA public GRANT ALL ON TABLES 
 -- PostgreSQL database dump complete
 --
 
-\unrestrict rzQAxmA6FzkGGVLi5ZCH93GYZO07ubAS15Q7Uac1qWFbBt4zEsdYh8IzrHh6Qa0
+\unrestrict 1fFtitQ4QPoPbdhjHyjBqNcEW7N47cpnQS2g283y9nU03cRucczHtRIgWMyJ295
 

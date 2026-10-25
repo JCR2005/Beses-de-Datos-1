@@ -1,8 +1,6 @@
 -- Proyecto 1 - BD Hospitales de Occidente
 -- 08_calificaciones.sql : calificaciones de la calidad del servicio (datos FICTICIOS)
 
-set search_path to public;
-
 insert into calificacion (id_calificacion, id_paciente, fecha, puntuacion, comentario, id_hospital, id_medico, id_enfermero, id_encargado, id_consulta) values
 -- hospitales
 (1, 1, '2026-08-10', 5, 'Atención puntual y ordenada.', 1, null, null, null, null),

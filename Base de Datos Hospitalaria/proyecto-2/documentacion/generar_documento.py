@@ -7,7 +7,9 @@ modificadas (y el completo como anexo), los 20 objetivos con su sentencia y su
 captura, el ORM, la normalizacion del Bloque E, la auditoria, la comparacion de
 rendimiento del objetivo 17 y todas las sentencias SQL del Proyecto 2.
 
-El diccionario se arma leyendo el catalogo de la base con el rol visor; las
+El diccionario se arma leyendo el catalogo de la base con el rol visor; la
+descripcion de cada tabla y columna esta en descripciones_p2.py (y las del
+Proyecto 1 en descripciones.py); las
 explicaciones de cada CHECK y de cada disparador se toman de los comentarios
 "-- valida ..." que acompañan a cada uno en los scripts SQL.
 
@@ -42,10 +44,20 @@ sys.path.insert(0, BASE)
 sys.path.insert(0, os.path.join(P1, 'documentacion'))
 from justificaciones import JUSTIFICACIONES  # noqa: E402  (Proyecto 1)
 from justificaciones_p2 import JUSTIFICACIONES_P2  # noqa: E402
+from descripciones import COLUMNAS, TABLAS  # noqa: E402  (Proyecto 1)
+from descripciones_p2 import COLUMNAS_P2, TABLAS_P2  # noqa: E402
 
 JUSTIFICACION = {**JUSTIFICACIONES, **JUSTIFICACIONES_P2}
-NUEVAS = ['personal', 'auditoria_personal']
-MODIFICADAS = ['medico', 'enfermero']
+DESC_TABLA = {**TABLAS, **TABLAS_P2}
+DESC_COLUMNA = {**COLUMNAS, **COLUMNAS_P2}
+NUEVAS = ['personal', 'auditoria_personal', 'clinica', 'orden_laboratorio', 'orden_examen', 'examen_laboratorio',
+          'forma_farmaceutica', 'funcion_instrumento', 'funcion_equipo', 'clasificacion_asa', 'tipo_medico',
+          'medio_asignacion']
+MODIFICADAS = ['medico', 'enfermero', 'cita', 'medicamento', 'instrumento', 'equipo', 'chequeo_preanestesico']
+# columnas agregadas en el Proyecto 2 o que ahora apuntan a un catalogo
+CAMBIOS = {'medico': ('tipo_personal', 'cargo', 'id_medico_superior', 'tipo_medico'), 'enfermero': ('tipo_personal',),
+           'cita': ('id_clinica', 'medio_asignacion'), 'medicamento': ('forma_farmaceutica',),
+           'instrumento': ('funcion',), 'equipo': ('funcion',), 'chequeo_preanestesico': ('clasificacion_asa',)}
 ACCION = {'a': 'NO ACTION', 'r': 'RESTRICT', 'c': 'CASCADE', 'n': 'SET NULL', 'd': 'SET DEFAULT'}
 
 
@@ -64,19 +76,19 @@ def psql(sql):
 
 def leer_catalogo():
     cat = {'tablas': {}, 'cols': {}, 'fk': {}, 'uk': set(), 'uk_compuestos': {}, 'checks': {}, 'triggers': {}, 'indices': {}}
-    for t, d in psql("""select relname, coalesce(obj_description(oid, 'pg_class'), '') from pg_class
+    for (t,) in psql("""select relname from pg_class
                          where relnamespace = 'public'::regnamespace and relkind = 'r' order by relname"""):
-        cat['tablas'][t] = d
-    for t, c, tipo, nn, pk, defecto, d in psql("""
+        cat['tablas'][t] = DESC_TABLA.get(t, '')
+    for t, c, tipo, nn, pk, defecto in psql("""
         select c.relname, a.attname, format_type(a.atttypid, a.atttypmod), a.attnotnull::int,
                exists(select 1 from pg_index i where i.indrelid = c.oid and i.indisprimary and a.attnum = any(i.indkey))::int,
-               coalesce(case when a.attidentity in ('a', 'd') then 'identity' end, pg_get_expr(ad.adbin, ad.adrelid), ''),
-               coalesce(col_description(c.oid, a.attnum), '')
+               coalesce(case when a.attidentity in ('a', 'd') then 'identity' end, pg_get_expr(ad.adbin, ad.adrelid), '')
           from pg_class c join pg_attribute a on a.attrelid = c.oid
           left join pg_attrdef ad on ad.adrelid = c.oid and ad.adnum = a.attnum
          where c.relnamespace = 'public'::regnamespace and c.relkind = 'r' and a.attnum > 0 and not a.attisdropped
          order by c.relname, a.attnum"""):
-        cat['cols'].setdefault(t, []).append(dict(col=c, tipo=tipo, nn=nn == '1', pk=pk == '1', defecto=defecto, desc=d))
+        cat['cols'].setdefault(t, []).append(dict(col=c, tipo=tipo, nn=nn == '1', pk=pk == '1', defecto=defecto,
+                                            desc=DESC_COLUMNA.get((t, c), '')))
     for t, c, padre, borrar, actualizar in psql("""
         select f.conrelid::regclass::text, a.attname, f.confrelid::regclass::text, f.confdeltype, f.confupdtype
           from pg_constraint f join pg_attribute a on a.attrelid = f.conrelid and a.attnum = any(f.conkey)
@@ -234,15 +246,15 @@ def introduccion(S, cat):
              [p('Llaves foráneas'), p(str(len({k for k in cat['fk']})))],
              [p('Restricciones CHECK'), p(str(sum(len(v) for v in cat['checks'].values())))],
              [p('Disparadores'), p(str(sum(len(v) for v in cat['triggers'].values())))],
-             [p('Funciones de consulta (una por objetivo)'), p('fn_objetivo_01 … fn_objetivo_18, fn_cadena_mando, fn_objetivo_17_*')]]
+             [p('Consultas'), p('Una sentencia SELECT por objetivo en sql/consultas/objetivo_XX.sql')]]
     S.append(tabla(filas, [8 * cm, ANCHO_V - 8 * cm]))
     S.append(p('Decisiones principales', H2))
     for d in [
-        'El rol administrativo (<b>admin</b>) pasa a ser dueño del esquema (script 00_propietario.sql), porque en '
+        'El rol administrativo (<b>admin</b>) es dueño de las tablas desde el DCL del Proyecto 1, porque en '
         'PostgreSQL solo el dueño de una tabla puede alterarla; así la extensión del Bloque B y la auditoría del '
         'Bloque F las ejecuta admin, como pide el enunciado. Las consultas se ejecutan con el rol de solo lectura <b>visor</b>.',
-        'Cada objetivo es una función <i>fn_objetivo_XX(desde, hasta)</i>: el lapso de tiempo es un parámetro y '
-        'visor puede ejecutarla sin permisos de escritura.',
+        'Cada objetivo es una sentencia SELECT en su propio archivo (sql/consultas/objetivo_XX.sql), con el lapso '
+        'de tiempo (enero a octubre de 2026) escrito en el WHERE; se ejecutan con el rol visor.',
         'La extensión es una migración no destructiva: no se borra ninguna columna ni tabla del Proyecto 1.',
         'Se agregaron dos hospitales y datos de enero a octubre de 2026 generados de forma reproducible '
         '(siempre producen los mismos valores), con 15 o más registros en cada tabla relevante.',
@@ -281,17 +293,17 @@ def modelo(S):
         '<b>Llave compartida.</b> id_medico e id_enfermero son el mismo valor que id_personal. Cada subtipo referencia '
         'a PERSONAL con una FK compuesta (id, tipo_personal) contra el UNIQUE (id_personal, tipo_personal): así un '
         'médico solo puede apuntar a personal de tipo médico. La jerarquía es <b>exclusiva</b> (una persona es de un '
-        'solo subtipo) y <b>completa</b> (un disparador diferido exige que toda persona tenga su subtipo al confirmar).',
+        'solo subtipo) y <b>completa</b> (todo el personal es médico o enfermero).',
         '<b>Por qué esta estrategia.</b> Una sola tabla con todas las columnas dejaría muchas nulas (los enfermeros no '
         'tienen especialidad ni horario de consulta); una tabla por subtipo sin supertipo repetiría los datos comunes '
         'y no permitiría auditar o consultar al personal como un todo. Con supertipo y subtipos cada dato vive una vez '
         'y las FK del Proyecto 1 hacia medico y enfermero siguen funcionando sin cambios.',
         '<b>Migración no destructiva.</b> Como el enunciado no permite modificar de forma destructiva las tablas '
-        'existentes, medico y enfermero conservan sus columnas del Proyecto 1. PERSONAL es la fuente de esos datos y '
-        'un disparador los copia al subtipo en cada inserción o actualización, de modo que nunca pueden diferir.',
+        'existentes, medico y enfermero conservan sus columnas del Proyecto 1. Al registrar personal nuevo, sus datos '
+        'comunes se guardan en PERSONAL y también en su subtipo (el INSERT del subtipo los toma de PERSONAL).',
         '<b>Relación recursiva.</b> medico.id_medico_superior referencia a medico (ON DELETE SET NULL). El cargo '
-        '(director_medico, jefe_servicio, medico) se valida con CHECK; un índice único parcial permite un solo director '
-        'por hospital y un disparador impide ciclos y superiores de otro hospital.']:
+        '(director_medico, jefe_servicio, medico) se valida con CHECK, igual que nadie puede ser su propio superior y que '
+        'el director no tiene superior.']:
         S.append(p('• ' + d, CUERPO))
 
 
@@ -321,8 +333,10 @@ def diccionario_detallado(S, cat, checks_txt, funciones_txt):
     S.append(NextPageTemplate('horizontal'))
     S.append(PageBreak())
     S.append(p('3. Diccionario de datos de las tablas nuevas y modificadas', H1))
-    S.append(p('Una tabla por entidad nueva (PERSONAL, AUDITORIA_PERSONAL) o modificada por el Bloque B (MEDICO, '
-               'ENFERMERO). En las filas de llave foránea se indica la acción referencial ante DELETE y UPDATE y su '
+    S.append(p('Una tabla por entidad nueva o modificada en el Proyecto 2: el supertipo PERSONAL y sus subtipos '
+               '(Bloque B), la bitácora (Bloque F), los catálogos que reemplazan a los CHECK con muchas opciones '
+               '(sql/ddl/03_catalogos.sql) y las clínicas y órdenes de laboratorio que faltaban en consulta externa '
+               '(sql/ddl/04_laboratorio_y_clinicas.sql). En las filas de llave foránea se indica la acción referencial ante DELETE y UPDATE y su '
                'justificación de negocio. Debajo se detallan sus restricciones CHECK, disparadores e índices.', CUERPO))
     cab = ['Atributo', 'Tipo de dato', 'Llave', 'Nulos', 'Por defecto', 'Descripción', 'DELETE', 'UPDATE', 'Justificación']
     anchos = [3.4 * cm, 2.5 * cm, 1.3 * cm, 1.0 * cm, 2.3 * cm, 6.6 * cm, 1.75 * cm, 1.75 * cm, ANCHO_H - 20.6 * cm]
@@ -335,11 +349,11 @@ def diccionario_detallado(S, cat, checks_txt, funciones_txt):
         resaltar = []
         for i, c in enumerate(cat['cols'][t], 1):
             filas.append(fila_diccionario(cat, t, c))
-            if t in MODIFICADAS and c['col'] in ('tipo_personal', 'cargo', 'id_medico_superior'):
+            if c['col'] in CAMBIOS.get(t, ()):
                 resaltar.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#E0F2F1')))
         S.append(tabla(filas, anchos, extra=resaltar))
         if t in MODIFICADAS:
-            S.append(p('<font color="#00695C">Las filas resaltadas son las columnas agregadas en el Proyecto 2.</font>', CELDA))
+            S.append(p('<font color="#00695C">Las filas resaltadas son las columnas agregadas en el Proyecto 2 o que ahora apuntan a un catálogo.</font>', CELDA))
         if cat['uk_compuestos'].get(t):
             S.append(p('Restricciones UNIQUE compuestas', H3))
             S.append(tabla([[p('<b>Restricción</b>'), p('<b>Columnas</b>'), p('<b>Para qué sirve</b>')]] +
@@ -377,11 +391,12 @@ def encabezado_sql(ruta):
     return titulo, cuerpo
 
 
-def codigo_funcion(ruta):
-    texto = open(ruta, encoding='utf-8').read()
-    ini = texto.find('create or replace function')
-    fin = texto.rfind('$$;') + 3
-    return texto[ini:fin] if ini >= 0 else texto
+def codigo_consulta(ruta):
+    """Las sentencias del archivo, sin el comentario inicial (que ya se muestra como descripcion)."""
+    lineas = open(ruta, encoding='utf-8').read().splitlines()
+    while lineas and (lineas[0].startswith('--') or not lineas[0].strip()):
+        lineas.pop(0)
+    return '\n'.join(lineas)
 
 
 OBJETIVOS_TITULO = {
@@ -416,32 +431,25 @@ def objetivos(S):
             _, cuerpo = encabezado_sql(ruta)
             S.append(p(escape(cuerpo), CUERPO))
             if n == 19:
-                texto = open(ruta, encoding='utf-8').read()
-                ini, fin = texto.find('-- propuesta normalizada'), texto.find('-- migracion de los datos')
-                S.append(p('Sentencias CREATE TABLE de la propuesta en 3FN (esquema propuesta_bloque_e):', CUERPO))
-                S.append(codigo(texto[ini:fin]))
-            else:
-                S.append(codigo(codigo_funcion(ruta)))
+                S.append(p('Sentencias CREATE TABLE de la propuesta en 3FN:', CUERPO))
+            S.append(codigo(codigo_consulta(ruta)))
         elif n == 15:
             S.append(p('La extensión se entrega como migración en sql/ddl/01_personal.sql (supertipo PERSONAL y '
                        'subtipos) y sql/ddl/02_jerarquia.sql (cadena de mando); el modelo y la estrategia están en la '
                        'sección 2 y el diccionario en la sección 3. La captura muestra que cada persona tiene su '
                        'subtipo y la cadena de mando del hospital 1.', CUERPO))
         elif n == 20:
-            S.append(p('Mecanismo en sql/auditoria/01_auditoria.sql: disparadores AFTER UPDATE sobre personal '
-                       '(salario, nivel_acceso) y medico (id_especialidad) registran una fila por campo modificado con '
-                       'el rol de base de datos, el usuario de sesión, el usuario de la aplicación (app.usuario), el '
-                       'valor anterior, el valor nuevo y clock_timestamp(). La bitácora pertenece a un rol sin login: '
-                       'admin y visor solo pueden leerla y la función que escribe en ella solo acepta llamadas desde un '
-                       'disparador. La demostración (sql/auditoria/02_prueba.sql) hace 3 cambios: un aumento de '
-                       'salario, un cambio de especialidad y un cambio de salario y nivel de acceso en la misma '
-                       'sentencia; además, un UPDATE que deja el mismo valor no genera registro y los intentos de '
-                       'borrar o falsificar la bitácora fallan con «permission denied». Limitación: como admin es '
-                       'dueño de personal y medico, podría desactivar los disparadores; evitarlo requeriría quitarle la '
-                       'propiedad que necesita para el Bloque B.', CUERPO))
+            S.append(p('Mecanismo en sql/auditoria/01_auditoria.sql: dos disparadores AFTER UPDATE, uno sobre personal '
+                       '(salario y nivel de acceso) y otro sobre medico (especialidad), anotan en la bitácora '
+                       'auditoria_personal una fila por cada campo que cambia, con quién lo cambió (current_user), el '
+                       'campo, el valor anterior (old), el valor nuevo (new) y la fecha y hora (now()). Así el registro '
+                       'es automático y no depende de la aplicación ni del usuario. La prueba (sql/auditoria/02_prueba.sql) '
+                       'hace 3 cambios: un aumento de salario, un cambio de especialidad y un cambio de salario y nivel de '
+                       'acceso en la misma sentencia; un UPDATE que deja el mismo valor no se anota.', CUERPO))
         captura = os.path.join(CAPTURAS, 'objetivo_%02d.png' % n)
-        S.append(Spacer(1, 4))
-        S.append(imagen(captura, ANCHO_V, 19 * cm))
+        if os.path.exists(captura):   # el objetivo 19 es solo una propuesta: no tiene captura
+            S.append(Spacer(1, 4))
+            S.append(imagen(captura, ANCHO_V, 19 * cm))
         if n == 17:
             md = open(os.path.join(BASE, 'rendimiento_objetivo_17.md'), encoding='utf-8').read()
             filas = [l.strip('|').split('|') for l in md.splitlines() if l.startswith('| ') and '---' not in l]
@@ -457,13 +465,15 @@ def orm(S):
     S.append(p('5. ORM: objetivos 8, 11 y 18 con JPA', H1))
     S.append(p('Se implementaron con Java 21, JPA (Hibernate 6.6) y el driver JDBC de PostgreSQL, en el proyecto '
                'Maven orm/. Las entidades son de solo lectura (@Immutable) y mapean solo las columnas usadas; '
-               'Factura se mapea a la vista v_factura, que ya calcula el hospital y la unidad de cada factura. La '
+               'Factura se mapea a la tabla factura con sus tres orígenes posibles (cita, ingreso y cirugía); la unidad y el '
+               'hospital de cada factura se obtienen uniendo el origen con su clínica, su unidad o su quirófano. La '
                'conexión usa el rol visor y la contraseña se lee de la variable de entorno HOSPITAL_DB_PASSWORD. '
                'Todas las consultas JPQL usan parámetros con nombre (:desde, :hasta, :efectivo…): Hibernate los envía '
                'en sentencias preparadas, nunca concatenados al texto, por lo que no hay riesgo de inyección SQL.', CUERPO))
     S.append(p('Igualdad de resultados', H2))
-    S.append(p('La clase Comparar ejecuta cada objetivo con JPA y con su función SQL (también con parámetros '
-               'enlazados ?1, ?2) y compara fila por fila:', CUERPO))
+    S.append(p('La clase Comparar ejecuta cada objetivo con JPA y con la consulta SQL de su archivo '
+               '(sql/consultas/objetivo_XX.sql, cuyas fechas se envían como parámetros enlazados :desde y :hasta) '
+               'y compara fila por fila:', CUERPO))
     S.append(codigo(open(os.path.join(BASE, 'orm_comparacion.txt'), encoding='utf-8').read()))
     S.append(p('Consultas JPQL (ConsultasOrm.java)', H2))
     S.append(codigo(open(os.path.join(P2, 'orm', 'src', 'main', 'java', 'gt', 'cunoc', 'hospital', 'orm',

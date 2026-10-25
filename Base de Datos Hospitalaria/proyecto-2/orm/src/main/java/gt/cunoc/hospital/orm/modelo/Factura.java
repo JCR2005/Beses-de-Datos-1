@@ -13,12 +13,12 @@ import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 
 /**
- * Factura con su hospital y unidad. Se mapea a la vista v_factura, que obtiene el hospital y la
- * unidad a partir del origen de la factura (cita, ingreso o cirugia); por eso es de solo lectura.
+ * Factura (tabla factura). Su origen es una cita, un ingreso o una cirugia (solo uno de los tres);
+ * de ese origen se obtiene la unidad y el hospital de la factura.
  */
 @Entity
 @Immutable
-@Table(name = "v_factura")
+@Table(name = "factura")
 public class Factura {
 
     @Id
@@ -35,16 +35,22 @@ public class Factura {
     private Short numeroCuotas;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "id_hospital")
-    private Hospital hospital;
+    @JoinColumn(name = "id_cita")
+    private Cita cita;
 
-    @Column(name = "tipo_unidad")
-    private String tipoUnidad;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "id_ingreso")
+    private Ingreso ingreso;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "id_cirugia")
+    private Cirugia cirugia;
 
     public Integer getId() { return id; }
     public OffsetDateTime getFechaEmision() { return fechaEmision; }
     public BigDecimal getTotal() { return total; }
     public Short getNumeroCuotas() { return numeroCuotas; }
-    public Hospital getHospital() { return hospital; }
-    public String getTipoUnidad() { return tipoUnidad; }
+    public Cita getCita() { return cita; }
+    public Ingreso getIngreso() { return ingreso; }
+    public Cirugia getCirugia() { return cirugia; }
 }

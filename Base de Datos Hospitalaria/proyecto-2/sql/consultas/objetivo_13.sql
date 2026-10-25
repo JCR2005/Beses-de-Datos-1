@@ -1,32 +1,17 @@
--- Proyecto 2 - Objetivo 13
--- Reporte de citas de consulta externa de cada hospital, ordenado por fecha y
--- agrupado por sexo del paciente y especialidad del medico.
+-- Objetivo 13: reporte de citas de consulta externa de cada hospital,
+-- ordenado por fecha y agrupado por sexo del paciente y especialidad del medico.
+-- lapso: enero a octubre de 2026
 
-begin;
-set role admin;
-set search_path to public;
-
-create or replace function fn_objetivo_13(p_desde date, p_hasta date)
-returns table (hospital varchar, fecha date, especialidad varchar, sexo varchar, citas bigint)
-language sql stable
-as $$
-    select h.nombre, ci.fecha_hora::date, es.nombre, p.sexo, count(*)
-      from cita ci
-      join paciente p on p.id_paciente = ci.id_paciente
-      join medico me on me.id_medico = ci.id_medico
-      join especialidad es on es.id_especialidad = me.id_especialidad
-      join hospital h on h.id_hospital = me.id_hospital
-     where ci.fecha_hora >= p_desde and ci.fecha_hora < p_hasta + 1
-     group by h.id_hospital, h.nombre, ci.fecha_hora::date, es.nombre, p.sexo
-     order by h.id_hospital, 2, 3, 4;
-$$;
-
-comment on function fn_objetivo_13(date, date) is 'Objetivo 13: citas por hospital, fecha, especialidad y sexo.';
-
-reset role;
-commit;
-
--- el reporte completo es largo; como ejemplo se consulta el primer trimestre
-set role visor;
-select * from fn_objetivo_13('2026-01-01', '2026-03-31');
-reset role;
+select h.nombre as hospital,
+       c.fecha_hora::date as fecha,
+       e.nombre as especialidad,
+       p.sexo,
+       count(*) as citas
+from cita c
+inner join paciente p on p.id_paciente = c.id_paciente
+inner join medico m on m.id_medico = c.id_medico
+inner join especialidad e on e.id_especialidad = m.id_especialidad
+inner join hospital h on h.id_hospital = m.id_hospital
+where c.fecha_hora between '2026-01-01' and '2026-10-31 23:59:59'
+group by h.id_hospital, h.nombre, c.fecha_hora::date, e.nombre, p.sexo
+order by h.id_hospital, fecha, especialidad, p.sexo;
